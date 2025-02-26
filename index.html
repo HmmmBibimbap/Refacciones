@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lector de Etiquetas</title>
+    <title>Lector de Etiquetas Mejorado</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.5.5/opencv.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -24,7 +25,7 @@
             margin: 10px 0;
         }
         
-        #videoContainer, #captureContainer {
+        #videoContainer, #captureContainer, #processingContainer {
             position: relative;
             width: 100%;
             max-width: 640px;
@@ -32,9 +33,13 @@
             display: none;
         }
         
-        #video, #capturedPhoto {
+        #video, #capturedPhoto, #processedPhoto {
             width: 100%;
             border: 1px solid #ccc;
+        }
+        
+        canvas {
+            display: none;
         }
         
         #overlay {
@@ -112,10 +117,27 @@
             padding: 5px;
             margin: 2px 0;
         }
+        
+        .procesamiento-controles {
+            margin: 10px 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .procesamiento-controles label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        
+        .procesamiento-item {
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
-    <h1>Lector de Etiquetas</h1>
+    <h1>Lector de Etiquetas Mejorado</h1>
     
     <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta con este formato:</p>
     
@@ -145,6 +167,34 @@
         <div class="controls">
             <button id="confirmBtn">Confirmar</button>
             <button id="retakeBtn">Tomar otra</button>
+            <button id="processBtn">Mejorar imagen</button>
+        </div>
+    </div>
+    
+    <div id="processingContainer">
+        <img id="processedPhoto">
+        <div class="procesamiento-controles">
+            <div class="procesamiento-item">
+                <label for="contrastSlider">Contraste:</label>
+                <input type="range" id="contrastSlider" min="0.5" max="3.0" step="0.1" value="1.5">
+            </div>
+            <div class="procesamiento-item">
+                <label for="brightnessSlider">Brillo:</label>
+                <input type="range" id="brightnessSlider" min="-100" max="100" step="1" value="0">
+            </div>
+            <div class="procesamiento-item">
+                <label for="thresholdCheck">Umbral adaptativo:</label>
+                <input type="checkbox" id="thresholdCheck" checked>
+            </div>
+            <div class="procesamiento-item">
+                <label for="grayscaleCheck">Escala de grises:</label>
+                <input type="checkbox" id="grayscaleCheck" checked>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="applyProcessingBtn">Aplicar filtros</button>
+            <button id="ocrProcessedBtn">Leer texto</button>
+            <button id="backToOriginalBtn">Volver a imagen original</button>
         </div>
     </div>
     
@@ -172,20 +222,31 @@
         const registerBtn = document.getElementById('registerBtn');
         const videoContainer = document.getElementById('videoContainer');
         const captureContainer = document.getElementById('captureContainer');
+        const processingContainer = document.getElementById('processingContainer');
         const video = document.getElementById('video');
         const capturedPhoto = document.getElementById('capturedPhoto');
+        const processedPhoto = document.getElementById('processedPhoto');
         const captureBtn = document.getElementById('captureBtn');
         const cancelBtn = document.getElementById('cancelBtn');
         const confirmBtn = document.getElementById('confirmBtn');
         const retakeBtn = document.getElementById('retakeBtn');
+        const processBtn = document.getElementById('processBtn');
         const switchCameraBtn = document.getElementById('switchCameraBtn');
+        const applyProcessingBtn = document.getElementById('applyProcessingBtn');
+        const ocrProcessedBtn = document.getElementById('ocrProcessedBtn');
+        const backToOriginalBtn = document.getElementById('backToOriginalBtn');
         const loadingMessage = document.getElementById('loadingMessage');
         const resultContainer = document.getElementById('resultContainer');
         const resultTableBody = document.getElementById('resultTableBody');
         const debugText = document.getElementById('debugText');
+        const contrastSlider = document.getElementById('contrastSlider');
+        const brightnessSlider = document.getElementById('brightnessSlider');
+        const thresholdCheck = document.getElementById('thresholdCheck');
+        const grayscaleCheck = document.getElementById('grayscaleCheck');
         
         let stream = null;
         let useFrontCamera = false; // Por defecto intentamos usar la cámara trasera
+        let originalImageData = null; // Para guardar la imagen original
         
         // Función para iniciar la cámara
         async function startCamera(useFront = false) {
@@ -258,7 +319,10 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            capturedPhoto.src = canvas.toDataURL('image/png');
+            // Guardar la imagen original
+            originalImageData = canvas.toDataURL('image/png');
+            capturedPhoto.src = originalImageData;
+            
             videoContainer.style.display = 'none';
             captureContainer.style.display = 'block';
         });
@@ -278,7 +342,132 @@
             videoContainer.style.display = 'block';
         });
         
-        // Confirmar foto y procesar
+        // Ir a la pantalla de procesamiento
+        processBtn.addEventListener('click', function() {
+            captureContainer.style.display = 'none';
+            processingContainer.style.display = 'block';
+            processedPhoto.src = capturedPhoto.src;
+            
+            // Aplicar procesamiento inicial
+            applyImageProcessing();
+        });
+        
+        // Volver a la imagen original
+        backToOriginalBtn.addEventListener('click', function() {
+            processingContainer.style.display = 'none';
+            captureContainer.style.display = 'block';
+        });
+        
+        // Aplicar filtros de procesamiento
+        applyProcessingBtn.addEventListener('click', function() {
+            applyImageProcessing();
+        });
+        
+        // Función para aplicar procesamiento de imagen con OpenCV
+        function applyImageProcessing() {
+            // Asegurarse de que OpenCV esté cargado
+            if (typeof cv === 'undefined') {
+                alert('OpenCV aún no está cargado. Espere un momento y vuelva a intentarlo.');
+                return;
+            }
+            
+            try {
+                const contrast = parseFloat(contrastSlider.value);
+                const brightness = parseInt(brightnessSlider.value);
+                const useThreshold = thresholdCheck.checked;
+                const useGrayscale = grayscaleCheck.checked;
+                
+                // Crear una imagen temporal para cargar la imagen capturada
+                const imgElement = new Image();
+                imgElement.onload = function() {
+                    // Crear canvas para procesar la imagen
+                    const canvas = document.createElement('canvas');
+                    canvas.width = imgElement.width;
+                    canvas.height = imgElement.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(imgElement, 0, 0);
+                    
+                    // Convertir a formato que OpenCV pueda procesar
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const src = cv.matFromImageData(imgData);
+                    const dst = new cv.Mat();
+                    
+                    // Convertir a escala de grises si está marcado
+                    if (useGrayscale) {
+                        cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+                        // Convertir de nuevo a RGB para poder aplicar otros filtros
+                        cv.cvtColor(src, src, cv.COLOR_GRAY2RGBA, 0);
+                    }
+                    
+                    // Aplicar contraste y brillo
+                    src.convertTo(dst, -1, contrast, brightness);
+                    
+                    // Aplicar umbral adaptativo si está marcado
+                    if (useThreshold) {
+                        // Convertir a escala de grises para umbral
+                        const gray = new cv.Mat();
+                        cv.cvtColor(dst, gray, cv.COLOR_RGBA2GRAY, 0);
+                        
+                        // Aplicar umbral adaptativo
+                        const thresholded = new cv.Mat();
+                        cv.adaptiveThreshold(gray, thresholded, 255,
+                            cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+                        
+                        // Convertir de nuevo a RGBA para mostrar
+                        cv.cvtColor(thresholded, dst, cv.COLOR_GRAY2RGBA, 0);
+                        
+                        gray.delete();
+                        thresholded.delete();
+                    }
+                    
+                    // Mostrar la imagen procesada
+                    cv.imshow(canvas, dst);
+                    processedPhoto.src = canvas.toDataURL('image/png');
+                    
+                    // Liberar memoria
+                    src.delete();
+                    dst.delete();
+                };
+                
+                // Cargar la imagen original
+                imgElement.src = originalImageData;
+                
+            } catch (err) {
+                console.error('Error al procesar la imagen:', err);
+                alert('Error al procesar la imagen: ' + err.message);
+            }
+        }
+        
+        // Procesar OCR en la imagen procesada
+        ocrProcessedBtn.addEventListener('click', function() {
+            processingContainer.style.display = 'none';
+            loadingMessage.style.display = 'block';
+            
+            Tesseract.recognize(
+                processedPhoto.src,
+                'spa',
+                { logger: m => console.log(m) }
+            ).then(({ data: { text } }) => {
+                debugText.textContent = "Texto detectado:\n" + text;
+                debugText.classList.remove('hidden');
+                
+                const resultado = procesarTexto(text);
+                mostrarResultados(resultado);
+                
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+                registerBtn.style.display = 'block';
+                loadingMessage.style.display = 'none';
+            }).catch(err => {
+                console.error('Error en OCR:', err);
+                alert('Error al procesar la imagen: ' + err.message);
+                loadingMessage.style.display = 'none';
+                registerBtn.style.display = 'block';
+            });
+        });
+        
+        // Confirmar foto y procesar directamente
         confirmBtn.addEventListener('click', function() {
             captureContainer.style.display = 'none';
             loadingMessage.style.display = 'block';
@@ -324,7 +513,7 @@
             // Simplificado: buscar encabezados y sus valores en las líneas siguientes
             for (let i = 0; i < lineas.length; i++) {
                 for (const encabezado of encabezados) {
-                    if (lineas[i].includes(encabezado) || sonSimilares(lineas[i], encabezado)) {
+                    if (sonSimilares(lineas[i], encabezado)) {
                         // Si encontramos un encabezado, el valor estará en la siguiente línea
                         if (i + 1 < lineas.length) {
                             resultado[encabezado] = lineas[i + 1];
@@ -349,17 +538,35 @@
             return resultado;
         }
         
-        // Función para comparar similitud (simplificada)
+        // Función para comparar similitud entre textos
         function sonSimilares(texto1, texto2) {
+            if (!texto1 || !texto2) return false;
+            
             texto1 = texto1.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
             texto2 = texto2.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
             
-            let similares = false;
+            // Comprobar si un texto contiene al otro
             if (texto1.includes(texto2) || texto2.includes(texto1)) {
-                similares = true;
+                return true;
             }
             
-            return similares;
+            // Comprobar distancia de edición (Levenshtein simplificado)
+            if (texto1.length > 3 && texto2.length > 3) {
+                let match = 0;
+                const minLength = Math.min(texto1.length, texto2.length);
+                const maxLength = Math.max(texto1.length, texto2.length);
+                
+                for (let i = 0; i < minLength; i++) {
+                    if (texto1[i] === texto2[i]) match++;
+                }
+                
+                // Si más del 70% de los caracteres coinciden
+                if (match / maxLength > 0.7) {
+                    return true;
+                }
+            }
+            
+            return false;
         }
         
         // Mostrar resultados en la tabla
@@ -370,7 +577,7 @@
                 const fila = document.createElement('tr');
                 const celda = document.createElement('td');
                 celda.colSpan = 2;
-                celda.textContent = 'No se detectaron datos. Intenta con mejor iluminación.';
+                celda.textContent = 'No se detectaron datos. Intenta con mejor iluminación o usa los filtros para mejorar la imagen.';
                 fila.appendChild(celda);
                 resultTableBody.appendChild(fila);
             } else {
@@ -395,6 +602,18 @@
             }
             
             resultContainer.classList.remove('hidden');
+        }
+        
+        // Esperar a que OpenCV esté cargado
+        function onOpenCvReady() {
+            console.log('OpenCV.js está cargado y listo');
+        }
+        
+        if (typeof cv !== 'undefined') {
+            onOpenCvReady();
+        } else {
+            // Si OpenCV no está disponible, configurar un callback
+            window.onOpenCvReady = onOpenCvReady;
         }
     </script>
 </body>
