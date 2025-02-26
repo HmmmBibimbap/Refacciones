@@ -94,12 +94,42 @@
             font-family: monospace;
             font-size: 12px;
         }
+        
+        .etiqueta-ejemplo {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 20px 0;
+            width: fit-content;
+        }
+        
+        .etiqueta-ejemplo .encabezado {
+            background-color: #ff5b87;
+            color: white;
+            padding: 5px;
+            margin: 2px 0;
+        }
+        
+        .etiqueta-ejemplo .valor {
+            background-color: white;
+            padding: 5px;
+            margin: 2px 0;
+        }
     </style>
 </head>
 <body>
     <h1>Lector de Etiquetas</h1>
     
-    <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta. El sistema buscará encabezados en color rosa y  extraerá los valores correspondientes en color blanco.</p>
+    <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta con este formato:</p>
+    
+    <div class="etiqueta-ejemplo">
+        <div class="encabezado">ID en PMC</div>
+        <div class="valor">EPH-12.5-006</div>
+        <div class="encabezado">Número de parte</div>
+        <div class="valor">12.5.177.B</div>
+        <div class="encabezado">Descripción</div>
+        <div class="valor">Stongel Codified Fire</div>
+    </div>
     
     <button id="registerBtn">Registrar</button>
     
@@ -232,13 +262,54 @@
         async function recognizeText(imageUrl) {
             const worker = await Tesseract.createWorker('spa');
             
+            // Configurar Tesseract para mejorar la precisión
+            await worker.setParameters({
+                tessedit_pageseg_mode: '6',  // Modo de segmentación de página (6 = bloques de texto uniforme)
+                tessedit_ocr_engine_mode: '2'  // Modo de motor OCR (2 = LSTM_ONLY)
+            });
+            
             const result = await worker.recognize(imageUrl);
             await worker.terminate();
             
+            // Mostrar el texto completo reconocido para depuración
             debugText.textContent = result.data.text;
             debugContainer.classList.remove('hidden');
             
             return parseEtiqueta(result.data.text);
+        }
+        
+        // Calcular la similitud entre dos strings
+        function levenshteinDistance(a, b) {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
+            
+            const matrix = [];
+            
+            // Inicializar la matriz
+            for (let i = 0; i <= b.length; i++) {
+                matrix[i] = [i];
+            }
+            
+            for (let j = 0; j <= a.length; j++) {
+                matrix[0][j] = j;
+            }
+            
+            // Rellenar la matriz
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                        matrix[i][j] = matrix[i - 1][j - 1];
+                    } else {
+                        matrix[i][j] = Math.min(
+                            matrix[i - 1][j - 1] + 1, // sustitución
+                            matrix[i][j - 1] + 1,     // inserción
+                            matrix[i - 1][j] + 1      // eliminación
+                        );
+                    }
+                }
+            }
+            
+            return matrix[b.length][a.length];
         }
         
         // Parsear el texto de la etiqueta
@@ -254,8 +325,12 @@
             
             const results = {};
             
-            // Buscar líneas que puedan contener información de la etiqueta
-            const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+            // Dividir el texto en líneas, eliminar espacios en blanco y líneas vacías
+            const lines = text.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+            
+            console.log('Líneas detectadas:', lines);
             
             // Para cada línea, comprobar si contiene alguno de los encabezados
             for (let i = 0; i < lines.length; i++) {
@@ -263,67 +338,72 @@
                 
                 // Comprobar si esta línea contiene algún encabezado
                 for (const header of expectedHeaders) {
-                    if (currentLine.includes(header)) {
-                        // Si la línea actual contiene un encabezado, el valor podría estar 
-                        // en la misma línea o en la siguiente
-                        let value = '';
+                    // Comparar si la línea actual contiene el encabezado o es muy similar
+                    const containsHeader = currentLine.toLowerCase().includes(header.toLowerCase());
+                    const similarity = levenshteinDistance(currentLine.toLowerCase(), header.toLowerCase());
+                    
+                    if (containsHeader || similarity <= 3) {
+                        console.log(`Encabezado "${header}" encontrado en línea ${i}: "${currentLine}"`);
                         
-                        // Verificar si el valor está en la misma línea (después del encabezado)
-                        const afterHeader = currentLine.substring(currentLine.indexOf(header) + header.length).trim();
-                        if (afterHeader) {
-                            value = afterHeader;
-                        }
-                        // Si no hay valor en la misma línea, intentar obtenerlo de la siguiente
-                        else if (i + 1 < lines.length) {
-                            value = lines[i + 1].trim();
-                        }
-                        
-                        // Limpiar el valor (quitar caracteres no deseados)
-                        value = value.replace(/^[:\s-]+/, '').trim();
-                        
-                        if (value) {
-                            results[header] = value;
+                        // El valor está en la siguiente línea (fondo blanco)
+                        if (i + 1 < lines.length) {
+                            let value = lines[i + 1].trim();
+                            
+                            // Si la siguiente línea parece ser otro encabezado, intentar con la siguiente
+                            if (expectedHeaders.some(h => 
+                                value.toLowerCase().includes(h.toLowerCase()) || 
+                                levenshteinDistance(value.toLowerCase(), h.toLowerCase()) <= 3)) {
+                                if (i + 2 < lines.length) {
+                                    value = lines[i + 2].trim();
+                                }
+                            }
+                            
+                            if (value) {
+                                results[header] = value;
+                                console.log(`Valor para "${header}": "${value}"`);
+                            }
                         }
                     }
-                }
-                
-                // También buscar patrones específicos de etiqueta (como EPH-XX.X-XXX)
-                const eph_match = currentLine.match(/EPH-[\d\.]+[-\.][\d\w]+/i);
-                if (eph_match && !results["Referencia"]) {
-                    results["Referencia"] = eph_match[0];
                 }
             }
             
-            // Si no se encontraron encabezados específicos, intentar identificar patrones comunes
-            if (Object.keys(results).length === 0) {
-                // Buscar patrones de referencia (EPH-XX.X-XXX)
-                const eph_pattern = /EPH-[\d\.]+[-\.][\d\w]+/ig;
-                let match;
+            // Si no se encontraron suficientes datos, intentar usar un enfoque estructural
+            if (Object.keys(results).length < expectedHeaders.length && lines.length >= 6) {
+                console.log('Usando enfoque estructural para detectar valores');
                 
-                while ((match = eph_pattern.exec(text)) !== null) {
-                    if (!results["Referencia"]) {
-                        results["Referencia"] = match[0];
-                    } else if (!results["Descripción"] && match[0] !== results["Referencia"]) {
-                        results["Descripción"] = match[0];
+                // Intentar identificar los encabezados por posición
+                for (let i = 0; i < lines.length - 1; i++) {
+                    const currentLine = lines[i].trim();
+                    const nextLine = lines[i + 1].trim();
+                    
+                    // Para cada encabezado, verificar si esta línea parece ser ese encabezado
+                    for (const header of expectedHeaders) {
+                        if (!results[header] && // Solo si aún no tenemos un valor para este encabezado
+                            (currentLine.toLowerCase().includes(header.toLowerCase()) || 
+                             levenshteinDistance(currentLine.toLowerCase(), header.toLowerCase()) <= 5)) {
+                            
+                            results[header] = nextLine;
+                            console.log(`Asignación estructural: "${header}" = "${nextLine}"`);
+                            break; // Pasar al siguiente par de líneas
+                        }
                     }
                 }
+            }
+            
+            // Si aún faltan datos y tenemos suficientes líneas, usar el enfoque más básico
+            if (Object.keys(results).length < expectedHeaders.length && lines.length >= 6) {
+                console.log('Usando enfoque de posición fija');
                 
-                // Buscar patrones numéricos que puedan ser "Número de puntos"
-                const num_pattern = /\b\d+\.\d+\b/g;
-                const numbers = [];
-                while ((match = num_pattern.exec(text)) !== null) {
-                    numbers.push(match[0]);
-                }
-                
-                if (numbers.length > 0 && !results["Número de puntos"]) {
-                    results["Número de puntos"] = numbers[0];
-                }
-                
-                // Buscar patrones que puedan ser "Código Stongal"
-                const code_pattern = /\b[A-Za-z0-9]+\/[A-Za-z0-9]+\b/g;
-                while ((match = code_pattern.exec(text)) !== null) {
-                    if (!results["Código Stongal"]) {
-                        results["Código Stongal"] = match[0];
+                // Asumir estructura fija: encabezado, valor, encabezado, valor...
+                let headerIndex = 0;
+                for (let i = 0; i < Math.min(lines.length, expectedHeaders.length * 2); i += 2) {
+                    if (headerIndex < expectedHeaders.length && i + 1 < lines.length) {
+                        const header = expectedHeaders[headerIndex];
+                        if (!results[header]) {
+                            results[header] = lines[i + 1];
+                            console.log(`Asignación por posición: "${header}" = "${lines[i + 1]}"`);
+                        }
+                        headerIndex++;
                     }
                 }
             }
@@ -332,36 +412,4 @@
         }
         
         // Mostrar resultados en la tabla
-        function displayResults(data) {
-            resultTableBody.innerHTML = '';
-            
-            if (Object.keys(data).length === 0) {
-                // Si no se encontraron datos, mostrar mensaje
-                const row = document.createElement('tr');
-                const cell = document.createElement('td');
-                cell.colSpan = 2;
-                cell.textContent = 'No se pudieron detectar datos de la etiqueta. Por favor, intente nuevamente con mejor iluminación o enfoque.';
-                row.appendChild(cell);
-                resultTableBody.appendChild(row);
-            } else {
-                // Mostrar los datos encontrados
-                for (const [campo, valor] of Object.entries(data)) {
-                    const row = document.createElement('tr');
-                    
-                    const campoCell = document.createElement('td');
-                    campoCell.textContent = campo;
-                    
-                    const valorCell = document.createElement('td');
-                    valorCell.textContent = valor;
-                    
-                    row.appendChild(campoCell);
-                    row.appendChild(valorCell);
-                    resultTableBody.appendChild(row);
-                }
-            }
-            
-            resultContainer.classList.remove('hidden');
-        }
-    </script>
-</body>
-</html>
+        function d
