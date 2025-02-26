@@ -508,31 +508,92 @@
             ];
             
             const resultado = {};
-            const lineas = texto.split('\n').map(l => l.trim()).filter(l => l);
             
-            // Simplificado: buscar encabezados y sus valores en las líneas siguientes
+            // Dividir en líneas no vacías
+            const lineas = texto.split('\n')
+                .map(linea => linea.trim())
+                .filter(linea => linea.length > 0);
+            
+            console.log('Líneas detectadas:', lineas);
+            
+            // Primero, identificamos las posiciones de los encabezados
+            const posicionesEncabezados = [];
+            
             for (let i = 0; i < lineas.length; i++) {
+                const lineaActual = lineas[i];
+                
                 for (const encabezado of encabezados) {
-                    if (sonSimilares(lineas[i], encabezado)) {
-                        // Si encontramos un encabezado, el valor estará en la siguiente línea
-                        if (i + 1 < lineas.length) {
-                            resultado[encabezado] = lineas[i + 1];
-                        }
+                    if (sonSimilares(lineaActual, encabezado)) {
+                        console.log(`Encabezado "${encabezado}" encontrado en línea ${i}: "${lineaActual}"`);
+                        posicionesEncabezados.push({
+                            encabezado: encabezado,
+                            posicion: i
+                        });
+                        break; // Para no asignar la misma línea a múltiples encabezados
                     }
                 }
             }
             
-            // Si no encontramos suficientes datos, probar un enfoque posicional
+            // Ordenar las posiciones de menor a mayor
+            posicionesEncabezados.sort((a, b) => a.posicion - b.posicion);
+            
+            console.log('Posiciones de encabezados:', posicionesEncabezados);
+            
+            // Para cada encabezado, tomamos el valor de la línea siguiente
+            // hasta el próximo encabezado o fin del texto
+            for (let i = 0; i < posicionesEncabezados.length; i++) {
+                const encabezadoActual = posicionesEncabezados[i];
+                const inicioValor = encabezadoActual.posicion + 1;
+                
+                // Determinar hasta dónde llega este valor (hasta el próximo encabezado o fin)
+                let finValor;
+                if (i < posicionesEncabezados.length - 1) {
+                    finValor = posicionesEncabezados[i + 1].posicion;
+                } else {
+                    finValor = lineas.length;
+                }
+                
+                // Extraer el valor (puede ser múltiples líneas)
+                if (inicioValor < lineas.length) {
+                    // Si hay múltiples líneas para un valor, las unimos
+                    if (inicioValor + 1 < finValor) {
+                        const lineasValor = lineas.slice(inicioValor, finValor);
+                        resultado[encabezadoActual.encabezado] = lineasValor.join(' ');
+                    } else {
+                        resultado[encabezadoActual.encabezado] = lineas[inicioValor];
+                    }
+                    
+                    console.log(`Valor asignado para "${encabezadoActual.encabezado}": "${resultado[encabezadoActual.encabezado]}"`);
+                }
+            }
+            
+            // Si no se encontraron suficientes datos y tenemos al menos 6 líneas,
+            // intentamos un enfoque estructural simple
             if (Object.keys(resultado).length < encabezados.length && lineas.length >= 6) {
-                // Asumimos estructura regular: encabezado-valor-encabezado-valor...
-                if (!resultado["ID en PMC"] && lineas.length >= 2) 
+                console.log('Usando enfoque estructural simple');
+                
+                // Asumimos una estructura alternada:
+                // ID en PMC (línea 0)
+                // [valor] (línea 1)
+                // Número de parte (línea 2)
+                // [valor] (línea 3)
+                // Descripción (línea 4)
+                // [valor] (línea 5)
+                
+                if (!resultado["ID en PMC"] && lineas.length >= 2) {
                     resultado["ID en PMC"] = lineas[1];
+                    console.log(`Asignación estructural: "ID en PMC" = "${lineas[1]}"`);
+                }
                 
-                if (!resultado["Número de parte"] && lineas.length >= 4) 
+                if (!resultado["Número de parte"] && lineas.length >= 4) {
                     resultado["Número de parte"] = lineas[3];
+                    console.log(`Asignación estructural: "Número de parte" = "${lineas[3]}"`);
+                }
                 
-                if (!resultado["Descripción"] && lineas.length >= 6) 
+                if (!resultado["Descripción"] && lineas.length >= 6) {
                     resultado["Descripción"] = lineas[5];
+                    console.log(`Asignación estructural: "Descripción" = "${lineas[5]}"`);
+                }
             }
             
             return resultado;
@@ -542,31 +603,79 @@
         function sonSimilares(texto1, texto2) {
             if (!texto1 || !texto2) return false;
             
-            texto1 = texto1.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
-            texto2 = texto2.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
+            // Normalizar textos: eliminar acentos, convertir a minúsculas y quitar caracteres especiales
+            texto1 = normalizarTexto(texto1);
+            texto2 = normalizarTexto(texto2);
+            
+            // Comprobar coincidencia exacta
+            if (texto1 === texto2) return true;
             
             // Comprobar si un texto contiene al otro
             if (texto1.includes(texto2) || texto2.includes(texto1)) {
                 return true;
             }
             
-            // Comprobar distancia de edición (Levenshtein simplificado)
-            if (texto1.length > 3 && texto2.length > 3) {
-                let match = 0;
-                const minLength = Math.min(texto1.length, texto2.length);
-                const maxLength = Math.max(texto1.length, texto2.length);
-                
-                for (let i = 0; i < minLength; i++) {
-                    if (texto1[i] === texto2[i]) match++;
-                }
-                
-                // Si más del 70% de los caracteres coinciden
-                if (match / maxLength > 0.7) {
-                    return true;
-                }
+            // Para textos cortos, ser más exigente
+            if (texto1.length < 5 || texto2.length < 5) {
+                // Al menos 80% de coincidencia para textos cortos
+                return calcularSimilitud(texto1, texto2) >= 0.8;
             }
             
-            return false;
+            // Para textos más largos, como "Número de parte" o "Descripción"
+            // Podemos ser menos exigentes
+            return calcularSimilitud(texto1, texto2) >= 0.6;
+        }
+        
+        // Normalizar texto para comparaciones
+        function normalizarTexto(texto) {
+            return texto.toLowerCase()
+                // Eliminar acentos
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                // Eliminar caracteres especiales y números
+                .replace(/[^a-z0-9]/g, '')
+                // Eliminar espacios
+                .trim();
+        }
+        
+        // Calcular porcentaje de similitud entre dos cadenas
+        function calcularSimilitud(s1, s2) {
+            let longer = s1;
+            let shorter = s2;
+            
+            if (s1.length < s2.length) {
+                longer = s2;
+                shorter = s1;
+            }
+            
+            const longerLength = longer.length;
+            if (longerLength === 0) return 1.0;
+            
+            // Implementación básica de distancia de edición
+            const editDistance = calcularDistanciaLevenshtein(longer, shorter);
+            
+            return (longerLength - editDistance) / parseFloat(longerLength);
+        }
+        
+        // Distancia de Levenshtein
+        function calcularDistanciaLevenshtein(s1, s2) {
+            let costs = new Array();
+            for (let i = 0; i <= s1.length; i++) {
+                let lastValue = i;
+                for (let j = 0; j <= s2.length; j++) {
+                    if (i === 0) {
+                        costs[j] = j;
+                    } else if (j > 0) {
+                        let newValue = costs[j - 1];
+                        if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+                            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                        }
+                        costs[j - 1] = lastValue;
+                        lastValue = newValue;
+                    }
+                }
+                if (i > 0) costs[s2.length] = lastValue;
+            }
+            return costs[s2.length];
         }
         
         // Mostrar resultados en la tabla
