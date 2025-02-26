@@ -136,6 +136,7 @@
         <div class="controls">
             <button id="captureBtn">Tomar Foto</button>
             <button id="cancelBtn">Cancelar</button>
+            <button id="switchCameraBtn">Cambiar Cámara</button>
         </div>
     </div>
     
@@ -177,31 +178,76 @@
         const cancelBtn = document.getElementById('cancelBtn');
         const confirmBtn = document.getElementById('confirmBtn');
         const retakeBtn = document.getElementById('retakeBtn');
+        const switchCameraBtn = document.getElementById('switchCameraBtn');
         const loadingMessage = document.getElementById('loadingMessage');
         const resultContainer = document.getElementById('resultContainer');
         const resultTableBody = document.getElementById('resultTableBody');
         const debugText = document.getElementById('debugText');
         
         let stream = null;
+        let useFrontCamera = false; // Por defecto intentamos usar la cámara trasera
         
-        // Iniciar la cámara
-        registerBtn.addEventListener('click', function() {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                navigator.mediaDevices.getUserMedia({ video: true })
-                    .then(function(mediaStream) {
-                        stream = mediaStream;
-                        video.srcObject = mediaStream;
-                        video.play();
-                        videoContainer.style.display = 'block';
-                        registerBtn.style.display = 'none';
-                    })
-                    .catch(function(err) {
-                        console.error("Error al acceder a la cámara: ", err);
-                        alert("No se pudo acceder a la cámara. Asegúrate de dar permisos.");
-                    });
-            } else {
-                alert("Tu navegador no soporta acceso a la cámara.");
+        // Función para iniciar la cámara
+        async function startCamera(useFront = false) {
+            // Detener cualquier stream previo
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
             }
+            
+            try {
+                if (useFront) {
+                    // Usar cámara frontal
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: "user" }
+                    });
+                    useFrontCamera = true;
+                } else {
+                    // Intentar usar cámara trasera
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: { exact: "environment" } }
+                        });
+                        useFrontCamera = false;
+                    } catch (err) {
+                        console.log("No se pudo acceder a la cámara trasera, intentando con la frontal");
+                        stream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: "user" }
+                        });
+                        useFrontCamera = true;
+                        alert("No se detectó cámara trasera. Usando cámara frontal.");
+                    }
+                }
+                
+                video.srcObject = stream;
+                await video.play();
+                
+            } catch (err) {
+                console.error("Error al acceder a la cámara: ", err);
+                alert("No se pudo acceder a la cámara. Asegúrate de dar permisos.");
+                videoContainer.style.display = 'none';
+                registerBtn.style.display = 'block';
+                return false;
+            }
+            
+            return true;
+        }
+        
+        // Iniciar la cámara al hacer click en el botón registrar
+        registerBtn.addEventListener('click', async function() {
+            videoContainer.style.display = 'block';
+            registerBtn.style.display = 'none';
+            
+            const success = await startCamera(false); // Intentar con cámara trasera primero
+            
+            if (!success) {
+                videoContainer.style.display = 'none';
+                registerBtn.style.display = 'block';
+            }
+        });
+        
+        // Cambiar entre cámaras frontal y trasera
+        switchCameraBtn.addEventListener('click', async function() {
+            await startCamera(!useFrontCamera); // Alternar entre cámaras
         });
         
         // Capturar foto
