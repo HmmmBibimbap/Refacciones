@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lector de Etiquetas - Alta Calidad</title>
+    <title>Lector de Etiquetas</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
     <style>
         body {
@@ -42,13 +42,14 @@
             border: 1px solid #ccc;
         }
         
-        #overlay {
+        #targetOverlay {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: 2px dashed #ff5b87;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 60%;
+            border: 3px dashed #ff5b87;
             box-sizing: border-box;
             pointer-events: none;
         }
@@ -105,7 +106,7 @@
         .etiqueta-ejemplo {
             background-color: #f5f5f5;
             border: 1px solid #ddd;
-            padding: 10px;
+            padding: 15px;
             margin: 20px 0;
             width: fit-content;
         }
@@ -113,14 +114,16 @@
         .etiqueta-ejemplo .encabezado {
             background-color: #ff5b87;
             color: white;
-            padding: 5px;
-            margin: 2px 0;
+            padding: 5px 10px;
+            margin: 3px 0;
+            font-weight: bold;
         }
         
         .etiqueta-ejemplo .valor {
             background-color: white;
-            padding: 5px;
-            margin: 2px 0;
+            padding: 5px 10px;
+            margin: 3px 0;
+            border: 1px solid #ddd;
         }
         
         .camera-quality {
@@ -157,33 +160,54 @@
             margin-top: 20px;
             background-color: #f9f9f9;
         }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .logo img {
+            max-width: 150px;
+        }
+        
+        .debug-toggle {
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .debug-toggle button {
+            background-color: #ddd;
+            color: #333;
+            padding: 5px 10px;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
-    <h1>Lector de Etiquetas</h1>
+    <div class="logo">
+        <!-- Aquí puedes agregar un logo si lo deseas -->
+        <h1>Lector de Etiquetas</h1>
+    </div>
     
     <div class="info-panel">
-        <p><strong>Consejos para mejorar el reconocimiento:</strong></p>
+        <p>Esta aplicación lee etiquetas con este formato:</p>
+        <div class="etiqueta-ejemplo">
+            <div class="encabezado">ID en PMC</div>
+            <div class="valor">CB4-005</div>
+            <div class="encabezado">Número de parte</div>
+            <div class="valor">CB4-12</div>
+            <div class="encabezado">Descripción</div>
+            <div class="valor">Socket Head Cap Screws</div>
+        </div>
+        <p><strong>Para mejores resultados:</strong></p>
         <ul>
             <li>Asegúrate de que haya buena iluminación</li>
-            <li>Mantén la cámara estable y enfoca bien la etiqueta</li>
-            <li>Centra la etiqueta en el recuadro</li>
-            <li>Intenta mantener la etiqueta plana, sin dobleces</li>
+            <li>Centra la etiqueta dentro del recuadro guía</li>
+            <li>Mantén la etiqueta plana y sin reflejos</li>
         </ul>
     </div>
     
-    <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta con este formato:</p>
-    
-    <div class="etiqueta-ejemplo">
-        <div class="encabezado">ID en PMC</div>
-        <div class="valor">EPH-12.5-006</div>
-        <div class="encabezado">Número de parte</div>
-        <div class="valor">12.5.177.B</div>
-        <div class="encabezado">Descripción</div>
-        <div class="valor">Screw</div>
-    </div>
-    
-    <button id="registerBtn">Registrar</button>
+    <button id="registerBtn">Abrir Cámara</button>
     
     <div id="videoContainer">
         <div class="camera-quality">
@@ -196,7 +220,7 @@
         </div>
         
         <video id="video" autoplay playsinline></video>
-        <div id="overlay"></div>
+        <div id="targetOverlay"></div>
         <div class="controls">
             <button id="captureBtn">Tomar Foto</button>
             <button id="cancelBtn">Cancelar</button>
@@ -207,7 +231,7 @@
     <div id="captureContainer">
         <img id="capturedPhoto">
         <div class="controls">
-            <button id="confirmBtn">Confirmar y Procesar</button>
+            <button id="confirmBtn">Procesar Imagen</button>
             <button id="retakeBtn">Tomar otra</button>
         </div>
     </div>
@@ -225,8 +249,8 @@
             <table class="result-table">
                 <thead>
                     <tr>
-                        <th>Campo (rosa)</th>
-                        <th>Valor (blanco)</th>
+                        <th>Campo</th>
+                        <th>Valor</th>
                     </tr>
                 </thead>
                 <tbody id="resultTableBody">
@@ -239,6 +263,9 @@
             <button id="newCaptureBtn">Nueva Captura</button>
         </div>
         
+        <div class="debug-toggle">
+            <button id="toggleDebugBtn">Ver detalles técnicos</button>
+        </div>
         <div id="debugText" class="hidden"></div>
     </div>
     
@@ -261,11 +288,10 @@
         const progressBar = document.getElementById('progressBar');
         const newCaptureBtn = document.getElementById('newCaptureBtn');
         const cameraResolution = document.getElementById('cameraResolution');
+        const toggleDebugBtn = document.getElementById('toggleDebugBtn');
         
         let stream = null;
         let useFrontCamera = false;
-        let highQuality = true;
-        let originalImageData = null;
         
         // Configuración de resoluciones para la cámara
         const resolucionesCamera = {
@@ -274,10 +300,22 @@
             low: { width: { ideal: 640 }, height: { ideal: 480 } }
         };
         
+        // Mostrar/ocultar detalles de depuración
+        toggleDebugBtn.addEventListener('click', function() {
+            if (debugText.classList.contains('hidden')) {
+                debugText.classList.remove('hidden');
+                toggleDebugBtn.textContent = 'Ocultar detalles técnicos';
+            } else {
+                debugText.classList.add('hidden');
+                toggleDebugBtn.textContent = 'Ver detalles técnicos';
+            }
+        });
+        
         // Iniciar una nueva captura
         newCaptureBtn.addEventListener('click', function() {
             resultPanel.classList.add('hidden');
             debugText.classList.add('hidden');
+            toggleDebugBtn.textContent = 'Ver detalles técnicos';
             registerBtn.click();
         });
         
@@ -401,8 +439,7 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
             // Guardar la imagen con alta calidad
-            originalImageData = canvas.toDataURL('image/png', 1.0);
-            capturedPhoto.src = originalImageData;
+            capturedPhoto.src = canvas.toDataURL('image/png', 1.0);
             
             videoContainer.style.display = 'none';
             captureContainer.style.display = 'block';
@@ -427,53 +464,50 @@
             loadingMessage.style.display = 'block';
             progressBar.style.width = '0%';
             
-            // Configuración avanzada para Tesseract
-            Tesseract.recognize(
-                capturedPhoto.src,
-                'spa',
-                {
-                    logger: info => {
-                        console.log(info);
-                        if (info.status === 'recognizing text') {
-                            progressBar.style.width = `${info.progress * 100}%`;
-                        }
-                    },
-                    tessjs_create_pdf: '0',
-                    tessjs_pdf_name: 'ocr',
-                    tessjs_pdf_auto_download: '0',
-                    tessjs_create_hocr: '0',
-                    tessjs_create_tsv: '0',
-                    tessjs_create_box: '0',
-                    tessjs_create_unlv: '0',
-                    tessjs_create_osd: '0'
-                }
-            ).then(({ data: { text } }) => {
-                // Mostrar el texto detectado para depuración
-                debugText.textContent = "Texto detectado:\n" + text;
-                debugText.classList.remove('hidden');
-                
-                // Procesar el texto para extraer los datos de la etiqueta
-                const resultado = procesarTexto(text);
-                mostrarResultados(resultado);
-                
-                // Detener la cámara y mostrar resultados
-                stopCamera();
-                loadingMessage.style.display = 'none';
-                resultPanel.classList.remove('hidden');
-            }).catch(err => {
-                console.error('Error en OCR:', err);
-                alert('Error al procesar la imagen: ' + err.message);
-                loadingMessage.style.display = 'none';
-                registerBtn.style.display = 'block';
-            });
+            // Configuración optimizada para Tesseract
+            const config = {
+                lang: 'spa+eng', // Idioma español + inglés para mayor precisión
+                logger: info => {
+                    console.log(info);
+                    if (info.status === 'recognizing text') {
+                        progressBar.style.width = `${info.progress * 100}%`;
+                    }
+                },
+                // Parámetros optimizados para este tipo de etiqueta
+                tessedit_ocr_engine_mode: '2', // LSTM only
+                preserve_interword_spaces: '1',
+                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.',
+                tessjs_create_pdf: '0'
+            };
+            
+            Tesseract.recognize(capturedPhoto.src, config)
+                .then(({ data: { text } }) => {
+                    // Mostrar el texto detectado para depuración
+                    debugText.textContent = "Texto detectado:\n" + text;
+                    
+                    // Procesar el texto para extraer los datos específicos de la etiqueta
+                    const resultado = procesarEtiqueta(text);
+                    mostrarResultados(resultado);
+                    
+                    // Detener la cámara y mostrar resultados
+                    stopCamera();
+                    loadingMessage.style.display = 'none';
+                    resultPanel.classList.remove('hidden');
+                })
+                .catch(err => {
+                    console.error('Error en OCR:', err);
+                    alert('Error al procesar la imagen: ' + err.message);
+                    loadingMessage.style.display = 'none';
+                    registerBtn.style.display = 'block';
+                });
         });
         
-        // Procesar el texto de la imagen
-        function procesarTexto(texto) {
-            console.log('Procesando texto:', texto);
+        // Procesar el texto para extraer información específica de la etiqueta
+        function procesarEtiqueta(texto) {
+            console.log('Texto detectado completo:', texto);
             
-            // Estos son los encabezados que estamos buscando (en rosa)
-            const encabezados = [
+            // Campos específicos que buscamos
+            const campos = [
                 "ID en PMC",
                 "Número de parte",
                 "Descripción"
@@ -481,201 +515,163 @@
             
             const resultado = {};
             
-            // Dividir en líneas no vacías
+            // Dividir en líneas
             const lineas = texto.split('\n')
                 .map(linea => linea.trim())
                 .filter(linea => linea.length > 0);
             
             console.log('Líneas detectadas:', lineas);
             
-            // Primero, identificamos las posiciones de los encabezados
+            // Buscar las posiciones de los encabezados
             const posicionesEncabezados = [];
             
             for (let i = 0; i < lineas.length; i++) {
                 const lineaActual = lineas[i];
                 
-                for (const encabezado of encabezados) {
-                    if (sonSimilares(lineaActual, encabezado)) {
-                        console.log(`Encabezado "${encabezado}" encontrado en línea ${i}: "${lineaActual}"`);
+                // Comprobar si la línea actual contiene un encabezado
+                for (const campo of campos) {
+                    if (similitudTexto(lineaActual, campo) >= 0.6) {
+                        console.log(`Encabezado "${campo}" encontrado en línea ${i}: "${lineaActual}"`);
                         posicionesEncabezados.push({
-                            encabezado: encabezado,
+                            campo: campo,
                             posicion: i
                         });
-                        break; // Para no asignar la misma línea a múltiples encabezados
+                        break;
                     }
                 }
             }
             
-            // Ordenar las posiciones de menor a mayor
+            // Ordenar las posiciones de encabezados por su posición en el texto
             posicionesEncabezados.sort((a, b) => a.posicion - b.posicion);
             
-            console.log('Posiciones de encabezados:', posicionesEncabezados);
-            
-            // Para cada encabezado, tomamos el valor de la línea siguiente
-            // hasta el próximo encabezado o fin del texto
+            // Para cada encabezado, obtener el valor de la línea siguiente
             for (let i = 0; i < posicionesEncabezados.length; i++) {
                 const encabezadoActual = posicionesEncabezados[i];
-                const inicioValor = encabezadoActual.posicion + 1;
+                const posValor = encabezadoActual.posicion + 1;
                 
-                // Determinar hasta dónde llega este valor (hasta el próximo encabezado o fin)
-                let finValor;
-                if (i < posicionesEncabezados.length - 1) {
-                    finValor = posicionesEncabezados[i + 1].posicion;
-                } else {
-                    finValor = lineas.length;
-                }
-                
-                // Extraer el valor (puede ser múltiples líneas)
-                if (inicioValor < lineas.length) {
-                    // Si hay múltiples líneas para un valor, las unimos
-                    if (inicioValor + 1 < finValor) {
-                        const lineasValor = lineas.slice(inicioValor, finValor);
-                        resultado[encabezadoActual.encabezado] = lineasValor.join(' ');
-                    } else {
-                        resultado[encabezadoActual.encabezado] = lineas[inicioValor];
-                    }
+                // Si hay una línea después del encabezado, ese es el valor
+                if (posValor < lineas.length) {
+                    let valor = lineas[posValor];
                     
-                    console.log(`Valor asignado para "${encabezadoActual.encabezado}": "${resultado[encabezadoActual.encabezado]}"`);
+                    // Asegurarse de que no estamos tomando el siguiente encabezado como valor
+                    const esSiguienteEncabezado = campos.some(c => similitudTexto(valor, c) >= 0.6);
+                    
+                    if (!esSiguienteEncabezado) {
+                        resultado[encabezadoActual.campo] = valor;
+                        console.log(`Valor para "${encabezadoActual.campo}": "${valor}"`);
+                    } else if (posValor + 1 < lineas.length) {
+                        // Si la siguiente línea es otro encabezado, intentar con la siguiente
+                        valor = lineas[posValor + 1];
+                        resultado[encabezadoActual.campo] = valor;
+                        console.log(`Valor alternativo para "${encabezadoActual.campo}": "${valor}"`);
+                    }
                 }
             }
             
-            // Si no se encontraron suficientes datos y tenemos al menos 6 líneas,
-            // intentamos un enfoque estructural simple
-            if (Object.keys(resultado).length < encabezados.length && lineas.length >= 6) {
-                console.log('Usando enfoque estructural simple');
+            // Si no encontramos todos los campos mediante encabezados, intentar método alternativo
+            if (Object.keys(resultado).length < campos.length) {
+                console.log('Método alternativo de extracción de datos');
                 
-                // Asumimos una estructura alternada:
-                // ID en PMC (línea 0)
-                // [valor] (línea 1)
-                // Número de parte (línea 2)
-                // [valor] (línea 3)
-                // Descripción (línea 4)
-                // [valor] (línea 5)
-                
-                if (!resultado["ID en PMC"] && lineas.length >= 2) {
-                    resultado["ID en PMC"] = lineas[1];
-                    console.log(`Asignación estructural: "ID en PMC" = "${lineas[1]}"`);
+                // Buscar patrones específicos de cada campo
+                for (const linea of lineas) {
+                    // Buscar patrones para ID en PMC (formato CB4-005, etc.)
+                    if (!resultado["ID en PMC"] && /[A-Z0-9]+-\d+/.test(linea)) {
+                        const match = linea.match(/[A-Z0-9]+-\d+/);
+                        if (match && !esCampo(match[0])) {
+                            resultado["ID en PMC"] = match[0];
+                            console.log(`ID en PMC detectado por patrón: ${match[0]}`);
+                        }
+                    }
+                    
+                    // Buscar patrones para Número de parte (formato CB4-12, etc.)
+                    if (!resultado["Número de parte"] && /[A-Z0-9]+-\d+/.test(linea)) {
+                        const match = linea.match(/[A-Z0-9]+-\d+/);
+                        if (match && !esCampo(match[0]) && match[0] !== resultado["ID en PMC"]) {
+                            resultado["Número de parte"] = match[0];
+                            console.log(`Número de parte detectado por patrón: ${match[0]}`);
+                        }
+                    }
                 }
                 
-                if (!resultado["Número de parte"] && lineas.length >= 4) {
-                    resultado["Número de parte"] = lineas[3];
-                    console.log(`Asignación estructural: "Número de parte" = "${lineas[3]}"`);
-                }
-                
-                if (!resultado["Descripción"] && lineas.length >= 6) {
-                    resultado["Descripción"] = lineas[5];
-                    console.log(`Asignación estructural: "Descripción" = "${lineas[5]}"`);
+                // Para la descripción, tomar la última línea que no sea un encabezado
+                if (!resultado["Descripción"]) {
+                    for (let i = lineas.length - 1; i >= 0; i--) {
+                        const linea = lineas[i];
+                        if (!esCampo(linea) && linea !== resultado["ID en PMC"] && linea !== resultado["Número de parte"]) {
+                            resultado["Descripción"] = linea;
+                            console.log(`Descripción detectada de última línea: ${linea}`);
+                            break;
+                        }
+                    }
                 }
             }
             
             return resultado;
         }
         
-        // Función para comparar similitud entre textos
-        function sonSimilares(texto1, texto2) {
-            if (!texto1 || !texto2) return false;
+        // Verificar si un texto parece ser un campo/encabezado
+        function esCampo(texto) {
+            const campos = ["ID en PMC", "Número de parte", "Descripción"];
+            return campos.some(campo => similitudTexto(texto, campo) >= 0.6);
+        }
+        
+        // Calcular similitud entre dos textos
+        function similitudTexto(texto1, texto2) {
+            if (!texto1 || !texto2) return 0;
             
-            // Normalizar textos: eliminar acentos, convertir a minúsculas y quitar caracteres especiales
+            // Normalizar textos
             texto1 = normalizarTexto(texto1);
             texto2 = normalizarTexto(texto2);
             
-            // Comprobar coincidencia exacta
-            if (texto1 === texto2) return true;
+            // Coincidencia exacta
+            if (texto1 === texto2) return 1;
             
-            // Comprobar si un texto contiene al otro
-            if (texto1.includes(texto2) || texto2.includes(texto1)) {
-                return true;
-            }
+            // Si un texto contiene al otro
+            if (texto1.includes(texto2)) return 0.9;
+            if (texto2.includes(texto1)) return 0.9;
             
-            // Para textos cortos, ser más exigente
-            if (texto1.length < 5 || texto2.length < 5) {
-                // Al menos 75% de coincidencia para textos cortos
-                return calcularSimilitud(texto1, texto2) >= 0.75;
-            }
-            
-            // Para textos más largos, como "Número de parte" o "Descripción"
-            // Podemos ser menos exigentes
-            return calcularSimilitud(texto1, texto2) >= 0.6;
+            // Distancia de edición
+            return 1 - distanciaLevenshtein(texto1, texto2) / Math.max(texto1.length, texto2.length);
         }
         
-        // Normalizar texto para comparaciones
+        // Normalizar texto para comparación
         function normalizarTexto(texto) {
             return texto.toLowerCase()
-                // Eliminar acentos
-                .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                // Eliminar caracteres especiales y números
-                .replace(/[^a-z0-9]/g, '')
-                // Eliminar espacios
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Quitar acentos
+                .replace(/[^\w\s]/g, '') // Quitar símbolos
                 .trim();
         }
         
-        // Calcular porcentaje de similitud entre dos cadenas
-        function calcularSimilitud(s1, s2) {
-            let longer = s1;
-            let shorter = s2;
+        // Cálculo de distancia de Levenshtein simplificada
+        function distanciaLevenshtein(a, b) {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
             
-            if (s1.length < s2.length) {
-                longer = s2;
-                shorter = s1;
+            let fila_anterior = Array(b.length + 1).fill(0);
+            let fila_actual = Array(b.length + 1).fill(0);
+            
+            // Inicializar la primera fila
+            for (let i = 0; i <= b.length; i++) {
+                fila_anterior[i] = i;
             }
             
-            const longerLength = longer.length;
-            if (longerLength === 0) return 1.0;
-            
-            // Implementación simplificada de distancia de edición
-            let distance = 0;
-            
-            // Para cadenas cortas, algoritmo simplificado
-            if (longer.length < 10) {
-                for (let i = 0; i < shorter.length; i++) {
-                    if (shorter[i] !== longer[i]) distance++;
+            for (let i = 1; i <= a.length; i++) {
+                fila_actual[0] = i;
+                
+                for (let j = 1; j <= b.length; j++) {
+                    const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+                    fila_actual[j] = Math.min(
+                        fila_anterior[j] + 1,          // eliminación
+                        fila_actual[j - 1] + 1,        // inserción
+                        fila_anterior[j - 1] + costo   // sustitución
+                    );
                 }
                 
-                if (longer.length > shorter.length) {
-                    distance += (longer.length - shorter.length);
-                }
-            } else {
-                // Para cadenas más largas, levenshtein completo
-                distance = calcularDistanciaLevenshtein(longer, shorter);
+                // Copiar fila actual a anterior
+                [fila_anterior, fila_actual] = [fila_actual, fila_anterior];
             }
             
-            return (longerLength - distance) / parseFloat(longerLength);
-        }
-        
-        // Implementación simple de distancia de Levenshtein
-        function calcularDistanciaLevenshtein(s1, s2) {
-            if (s1.length === 0) return s2.length;
-            if (s2.length === 0) return s1.length;
-            
-            const matrix = [];
-            
-            // Inicializar matriz
-            for (let i = 0; i <= s2.length; i++) {
-                matrix[i] = [i];
-            }
-            
-            for (let j = 0; j <= s1.length; j++) {
-                matrix[0][j] = j;
-            }
-            
-            // Rellenar matriz
-            for (let i = 1; i <= s2.length; i++) {
-                for (let j = 1; j <= s1.length; j++) {
-                    if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
-                        matrix[i][j] = matrix[i - 1][j - 1];
-                    } else {
-                        matrix[i][j] = Math.min(
-                            matrix[i - 1][j - 1] + 1, // Sustitución
-                            Math.min(
-                                matrix[i][j - 1] + 1, // Inserción
-                                matrix[i - 1][j] + 1  // Eliminación
-                            )
-                        );
-                    }
-                }
-            }
-            
-            return matrix[s2.length][s1.length];
+            return fila_anterior[b.length];
         }
         
         // Mostrar resultados en la tabla
@@ -693,20 +689,18 @@
                 // Mostrar los resultados en orden específico
                 const orden = ["ID en PMC", "Número de parte", "Descripción"];
                 
-                for (const encabezado of orden) {
-                    if (datos[encabezado]) {
-                        const fila = document.createElement('tr');
-                        
-                        const celdaEncabezado = document.createElement('td');
-                        celdaEncabezado.textContent = encabezado;
-                        
-                        const celdaValor = document.createElement('td');
-                        celdaValor.textContent = datos[encabezado];
-                        
-                        fila.appendChild(celdaEncabezado);
-                        fila.appendChild(celdaValor);
-                        resultTableBody.appendChild(fila);
-                    }
+                for (const campo of orden) {
+                    const fila = document.createElement('tr');
+                    
+                    const celdaCampo = document.createElement('td');
+                    celdaCampo.textContent = campo;
+                    
+                    const celdaValor = document.createElement('td');
+                    celdaValor.textContent = datos[campo] || 'No detectado';
+                    
+                    fila.appendChild(celdaCampo);
+                    fila.appendChild(celdaValor);
+                    resultTableBody.appendChild(fila);
                 }
             }
         }
