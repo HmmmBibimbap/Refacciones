@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lector de Etiquetas</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        button {
+            background-color: #ff5b87;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        #videoContainer, #captureContainer {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        #video, #capturedPhoto {
+            width: 100%;
+            border: 1px solid #ccc;
+        }
+        
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 2px dashed #ff5b87;
+            box-sizing: border-box;
+            pointer-events: none;
+        }
+        
+        .controls {
+            margin: 15px 0;
+        }
+        
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .result-table th {
+            background-color: #ff5b87;
+            color: white;
+            padding: 10px;
+            text-align: left;
+        }
+        
+        .result-table td {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+        
+        #loadingMessage {
+            display: none;
+            margin: 20px 0;
+            font-weight: bold;
+            color: #ff5b87;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Lector de Etiquetas</h1>
+    
+    <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta similar a EPH-12.5-006.</p>
+    
+    <button id="registerBtn">Registrar</button>
+    
+    <div id="videoContainer">
+        <video id="video" autoplay playsinline></video>
+        <div id="overlay"></div>
+        <div class="controls">
+            <button id="captureBtn">Tomar Foto</button>
+            <button id="cancelCaptureBtn">Cancelar</button>
+        </div>
+    </div>
+    
+    <div id="captureContainer">
+        <img id="capturedPhoto">
+        <div class="controls">
+            <button id="confirmBtn">Confirmar</button>
+            <button id="retakeBtn">Tomar otra</button>
+        </div>
+    </div>
+    
+    <div id="loadingMessage">Procesando imagen, por favor espere...</div>
+    
+    <div id="resultContainer" class="hidden">
+        <h2>Datos extraídos:</h2>
+        <table class="result-table">
+            <thead>
+                <tr>
+                    <th>Campo</th>
+                    <th>Valor</th>
+                </tr>
+            </thead>
+            <tbody id="resultTableBody">
+                <!-- Los resultados se agregarán aquí -->
+            </tbody>
+        </table>
+    </div>
+    
+    <script>
+        // Elementos del DOM
+        const registerBtn = document.getElementById('registerBtn');
+        const videoContainer = document.getElementById('videoContainer');
+        const captureContainer = document.getElementById('captureContainer');
+        const video = document.getElementById('video');
+        const capturedPhoto = document.getElementById('capturedPhoto');
+        const captureBtn = document.getElementById('captureBtn');
+        const confirmBtn = document.getElementById('confirmBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const cancelCaptureBtn = document.getElementById('cancelCaptureBtn');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultTableBody = document.getElementById('resultTableBody');
+        
+        let stream = null;
+        
+        // Iniciar la cámara
+        registerBtn.addEventListener('click', async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                video.srcObject = stream;
+                videoContainer.style.display = 'block';
+                registerBtn.style.display = 'none';
+            } catch (err) {
+                console.error('Error al acceder a la cámara: ', err);
+                alert('No se pudo acceder a la cámara. Verifique los permisos del navegador.');
+            }
+        });
+        
+        // Capturar foto
+        captureBtn.addEventListener('click', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            capturedPhoto.src = canvas.toDataURL('image/png');
+            videoContainer.style.display = 'none';
+            captureContainer.style.display = 'block';
+        });
+        
+        // Cancelar captura
+        cancelCaptureBtn.addEventListener('click', () => {
+            stopCamera();
+            videoContainer.style.display = 'none';
+            registerBtn.style.display = 'block';
+        });
+        
+        // Retomar foto
+        retakeBtn.addEventListener('click', () => {
+            captureContainer.style.display = 'none';
+            videoContainer.style.display = 'block';
+        });
+        
+        // Confirmar foto y procesar
+        confirmBtn.addEventListener('click', async () => {
+            captureContainer.style.display = 'none';
+            loadingMessage.style.display = 'block';
+            
+            try {
+                const result = await recognizeText(capturedPhoto.src);
+                displayResults(result);
+            } catch (error) {
+                console.error('Error al procesar la imagen:', error);
+                alert('Hubo un error al procesar la imagen. Intente nuevamente.');
+            } finally {
+                loadingMessage.style.display = 'none';
+                stopCamera();
+                registerBtn.style.display = 'block';
+            }
+        });
+        
+        // Detener la cámara
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+        }
+        
+        // Reconocer texto usando Tesseract.js
+        async function recognizeText(imageUrl) {
+            const worker = await Tesseract.createWorker('spa');
+            await worker.setParameters({
+                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-',
+            });
+            
+            const result = await worker.recognize(imageUrl);
+            await worker.terminate();
+            
+            return parseEtiqueta(result.data.text);
+        }
+        
+        // Parsear el texto de la etiqueta
+        function parseEtiqueta(text) {
+            console.log('Texto reconocido:', text);
+            
+            // Buscar patrones específicos de la etiqueta
+            const patterns = {
+                'Referencia': /EPH-\d+\.\d+-\d+/i,
+                'Número de puntos': /\d+\.\d+/,
+                'Descripción': /EPH-\d+\.\d+-\d+\.\w+/i,
+                'Código Stongal': /\w+\/\w+/i
+            };
+            
+            const results = {};
+            
+            // Para cada patrón, buscar en el texto
+            for (const [campo, pattern] of Object.entries(patterns)) {
+                const match = text.match(pattern);
+                if (match) {
+                    results[campo] = match[0];
+                } else {
+                    results[campo] = 'No encontrado';
+                }
+            }
+            
+            return results;
+        }
+        
+        // Mostrar resultados en la tabla
+        function displayResults(data) {
+            resultTableBody.innerHTML = '';
+            
+            for (const [campo, valor] of Object.entries(data)) {
+                const row = document.createElement('tr');
+                
+                const campoCell = document.createElement('td');
+                campoCell.textContent = campo;
+                
+                const valorCell = document.createElement('td');
+                valorCell.textContent = valor;
+                
+                row.appendChild(campoCell);
+                row.appendChild(valorCell);
+                resultTableBody.appendChild(row);
+            }
+            
+            resultContainer.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
