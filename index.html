@@ -82,17 +82,14 @@
             display: none;
         }
         
-        .debug-section {
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #f0f0f0;
-            border: 1px solid #ddd;
-        }
-        
         #debugText {
             white-space: pre-wrap;
             font-family: monospace;
             font-size: 12px;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
         }
         
         .etiqueta-ejemplo {
@@ -138,7 +135,7 @@
         <div id="overlay"></div>
         <div class="controls">
             <button id="captureBtn">Tomar Foto</button>
-            <button id="cancelCaptureBtn">Cancelar</button>
+            <button id="cancelBtn">Cancelar</button>
         </div>
     </div>
     
@@ -167,10 +164,7 @@
         </table>
     </div>
     
-    <div id="debugContainer" class="debug-section hidden">
-        <h3>Texto reconocido (Debug):</h3>
-        <div id="debugText"></div>
-    </div>
+    <div id="debugText" class="hidden"></div>
     
     <script>
         // Elementos del DOM
@@ -180,34 +174,38 @@
         const video = document.getElementById('video');
         const capturedPhoto = document.getElementById('capturedPhoto');
         const captureBtn = document.getElementById('captureBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
         const confirmBtn = document.getElementById('confirmBtn');
         const retakeBtn = document.getElementById('retakeBtn');
-        const cancelCaptureBtn = document.getElementById('cancelCaptureBtn');
         const loadingMessage = document.getElementById('loadingMessage');
         const resultContainer = document.getElementById('resultContainer');
         const resultTableBody = document.getElementById('resultTableBody');
-        const debugContainer = document.getElementById('debugContainer');
         const debugText = document.getElementById('debugText');
         
         let stream = null;
         
         // Iniciar la cámara
-        registerBtn.addEventListener('click', async () => {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment' } 
-                });
-                video.srcObject = stream;
-                videoContainer.style.display = 'block';
-                registerBtn.style.display = 'none';
-            } catch (err) {
-                console.error('Error al acceder a la cámara: ', err);
-                alert('No se pudo acceder a la cámara. Verifique los permisos del navegador.');
+        registerBtn.addEventListener('click', function() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(function(mediaStream) {
+                        stream = mediaStream;
+                        video.srcObject = mediaStream;
+                        video.play();
+                        videoContainer.style.display = 'block';
+                        registerBtn.style.display = 'none';
+                    })
+                    .catch(function(err) {
+                        console.error("Error al acceder a la cámara: ", err);
+                        alert("No se pudo acceder a la cámara. Asegúrate de dar permisos.");
+                    });
+            } else {
+                alert("Tu navegador no soporta acceso a la cámara.");
             }
         });
         
         // Capturar foto
-        captureBtn.addEventListener('click', () => {
+        captureBtn.addEventListener('click', function() {
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -220,196 +218,138 @@
         });
         
         // Cancelar captura
-        cancelCaptureBtn.addEventListener('click', () => {
-            stopCamera();
+        cancelBtn.addEventListener('click', function() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
             videoContainer.style.display = 'none';
             registerBtn.style.display = 'block';
         });
         
         // Retomar foto
-        retakeBtn.addEventListener('click', () => {
+        retakeBtn.addEventListener('click', function() {
             captureContainer.style.display = 'none';
             videoContainer.style.display = 'block';
         });
         
         // Confirmar foto y procesar
-        confirmBtn.addEventListener('click', async () => {
+        confirmBtn.addEventListener('click', function() {
             captureContainer.style.display = 'none';
             loadingMessage.style.display = 'block';
             
-            try {
-                const result = await recognizeText(capturedPhoto.src);
-                displayResults(result);
-            } catch (error) {
-                console.error('Error al procesar la imagen:', error);
-                alert('Hubo un error al procesar la imagen: ' + error.message);
-            } finally {
-                loadingMessage.style.display = 'none';
-                stopCamera();
+            Tesseract.recognize(
+                capturedPhoto.src,
+                'spa',
+                { logger: m => console.log(m) }
+            ).then(({ data: { text } }) => {
+                debugText.textContent = "Texto detectado:\n" + text;
+                debugText.classList.remove('hidden');
+                
+                const resultado = procesarTexto(text);
+                mostrarResultados(resultado);
+                
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
                 registerBtn.style.display = 'block';
-            }
+                loadingMessage.style.display = 'none';
+            }).catch(err => {
+                console.error('Error en OCR:', err);
+                alert('Error al procesar la imagen: ' + err.message);
+                loadingMessage.style.display = 'none';
+                registerBtn.style.display = 'block';
+            });
         });
         
-        // Detener la cámara
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-        }
-        
-        // Reconocer texto usando Tesseract.js
-        async function recognizeText(imageUrl) {
-            const worker = await Tesseract.createWorker('spa');
+        // Procesar el texto de la imagen
+        function procesarTexto(texto) {
+            console.log('Procesando texto:', texto);
             
-            // Configurar Tesseract para mejorar la precisión
-            await worker.setParameters({
-                tessedit_pageseg_mode: '6',  // Modo de segmentación de página (6 = bloques de texto uniforme)
-                tessedit_ocr_engine_mode: '2'  // Modo de motor OCR (2 = LSTM_ONLY)
-            });
-            
-            const result = await worker.recognize(imageUrl);
-            await worker.terminate();
-            
-            // Mostrar el texto completo reconocido para depuración
-            debugText.textContent = result.data.text;
-            debugContainer.classList.remove('hidden');
-            
-            return parseEtiqueta(result.data.text);
-        }
-        
-        // Calcular la similitud entre dos strings
-        function levenshteinDistance(a, b) {
-            if (a.length === 0) return b.length;
-            if (b.length === 0) return a.length;
-            
-            const matrix = [];
-            
-            // Inicializar la matriz
-            for (let i = 0; i <= b.length; i++) {
-                matrix[i] = [i];
-            }
-            
-            for (let j = 0; j <= a.length; j++) {
-                matrix[0][j] = j;
-            }
-            
-            // Rellenar la matriz
-            for (let i = 1; i <= b.length; i++) {
-                for (let j = 1; j <= a.length; j++) {
-                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                        matrix[i][j] = matrix[i - 1][j - 1];
-                    } else {
-                        matrix[i][j] = Math.min(
-                            matrix[i - 1][j - 1] + 1, // sustitución
-                            matrix[i][j - 1] + 1,     // inserción
-                            matrix[i - 1][j] + 1      // eliminación
-                        );
-                    }
-                }
-            }
-            
-            return matrix[b.length][a.length];
-        }
-        
-        // Parsear el texto de la etiqueta
-        function parseEtiqueta(text) {
-            console.log('Texto reconocido:', text);
-            
-            // Definir los encabezados específicos (los textos en rosa/rojo)
-            const expectedHeaders = [
+            // Estos son los encabezados que estamos buscando (en rosa)
+            const encabezados = [
                 "ID en PMC",
                 "Número de parte",
                 "Descripción"
             ];
             
-            const results = {};
+            const resultado = {};
+            const lineas = texto.split('\n').map(l => l.trim()).filter(l => l);
             
-            // Dividir el texto en líneas, eliminar espacios en blanco y líneas vacías
-            const lines = text.split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0);
-            
-            console.log('Líneas detectadas:', lines);
-            
-            // Para cada línea, comprobar si contiene alguno de los encabezados
-            for (let i = 0; i < lines.length; i++) {
-                const currentLine = lines[i].trim();
-                
-                // Comprobar si esta línea contiene algún encabezado
-                for (const header of expectedHeaders) {
-                    // Comparar si la línea actual contiene el encabezado o es muy similar
-                    const containsHeader = currentLine.toLowerCase().includes(header.toLowerCase());
-                    const similarity = levenshteinDistance(currentLine.toLowerCase(), header.toLowerCase());
-                    
-                    if (containsHeader || similarity <= 3) {
-                        console.log(`Encabezado "${header}" encontrado en línea ${i}: "${currentLine}"`);
-                        
-                        // El valor está en la siguiente línea (fondo blanco)
-                        if (i + 1 < lines.length) {
-                            let value = lines[i + 1].trim();
-                            
-                            // Si la siguiente línea parece ser otro encabezado, intentar con la siguiente
-                            if (expectedHeaders.some(h => 
-                                value.toLowerCase().includes(h.toLowerCase()) || 
-                                levenshteinDistance(value.toLowerCase(), h.toLowerCase()) <= 3)) {
-                                if (i + 2 < lines.length) {
-                                    value = lines[i + 2].trim();
-                                }
-                            }
-                            
-                            if (value) {
-                                results[header] = value;
-                                console.log(`Valor para "${header}": "${value}"`);
-                            }
+            // Simplificado: buscar encabezados y sus valores en las líneas siguientes
+            for (let i = 0; i < lineas.length; i++) {
+                for (const encabezado of encabezados) {
+                    if (lineas[i].includes(encabezado) || sonSimilares(lineas[i], encabezado)) {
+                        // Si encontramos un encabezado, el valor estará en la siguiente línea
+                        if (i + 1 < lineas.length) {
+                            resultado[encabezado] = lineas[i + 1];
                         }
                     }
                 }
             }
             
-            // Si no se encontraron suficientes datos, intentar usar un enfoque estructural
-            if (Object.keys(results).length < expectedHeaders.length && lines.length >= 6) {
-                console.log('Usando enfoque estructural para detectar valores');
+            // Si no encontramos suficientes datos, probar un enfoque posicional
+            if (Object.keys(resultado).length < encabezados.length && lineas.length >= 6) {
+                // Asumimos estructura regular: encabezado-valor-encabezado-valor...
+                if (!resultado["ID en PMC"] && lineas.length >= 2) 
+                    resultado["ID en PMC"] = lineas[1];
                 
-                // Intentar identificar los encabezados por posición
-                for (let i = 0; i < lines.length - 1; i++) {
-                    const currentLine = lines[i].trim();
-                    const nextLine = lines[i + 1].trim();
-                    
-                    // Para cada encabezado, verificar si esta línea parece ser ese encabezado
-                    for (const header of expectedHeaders) {
-                        if (!results[header] && // Solo si aún no tenemos un valor para este encabezado
-                            (currentLine.toLowerCase().includes(header.toLowerCase()) || 
-                             levenshteinDistance(currentLine.toLowerCase(), header.toLowerCase()) <= 5)) {
-                            
-                            results[header] = nextLine;
-                            console.log(`Asignación estructural: "${header}" = "${nextLine}"`);
-                            break; // Pasar al siguiente par de líneas
-                        }
-                    }
-                }
+                if (!resultado["Número de parte"] && lineas.length >= 4) 
+                    resultado["Número de parte"] = lineas[3];
+                
+                if (!resultado["Descripción"] && lineas.length >= 6) 
+                    resultado["Descripción"] = lineas[5];
             }
             
-            // Si aún faltan datos y tenemos suficientes líneas, usar el enfoque más básico
-            if (Object.keys(results).length < expectedHeaders.length && lines.length >= 6) {
-                console.log('Usando enfoque de posición fija');
-                
-                // Asumir estructura fija: encabezado, valor, encabezado, valor...
-                let headerIndex = 0;
-                for (let i = 0; i < Math.min(lines.length, expectedHeaders.length * 2); i += 2) {
-                    if (headerIndex < expectedHeaders.length && i + 1 < lines.length) {
-                        const header = expectedHeaders[headerIndex];
-                        if (!results[header]) {
-                            results[header] = lines[i + 1];
-                            console.log(`Asignación por posición: "${header}" = "${lines[i + 1]}"`);
-                        }
-                        headerIndex++;
-                    }
-                }
+            return resultado;
+        }
+        
+        // Función para comparar similitud (simplificada)
+        function sonSimilares(texto1, texto2) {
+            texto1 = texto1.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
+            texto2 = texto2.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
+            
+            let similares = false;
+            if (texto1.includes(texto2) || texto2.includes(texto1)) {
+                similares = true;
             }
             
-            return results;
+            return similares;
         }
         
         // Mostrar resultados en la tabla
-        function d
+        function mostrarResultados(datos) {
+            resultTableBody.innerHTML = '';
+            
+            if (Object.keys(datos).length === 0) {
+                const fila = document.createElement('tr');
+                const celda = document.createElement('td');
+                celda.colSpan = 2;
+                celda.textContent = 'No se detectaron datos. Intenta con mejor iluminación.';
+                fila.appendChild(celda);
+                resultTableBody.appendChild(fila);
+            } else {
+                // Mostrar los resultados en orden específico
+                const orden = ["ID en PMC", "Número de parte", "Descripción"];
+                
+                for (const encabezado of orden) {
+                    if (datos[encabezado]) {
+                        const fila = document.createElement('tr');
+                        
+                        const celdaEncabezado = document.createElement('td');
+                        celdaEncabezado.textContent = encabezado;
+                        
+                        const celdaValor = document.createElement('td');
+                        celdaValor.textContent = datos[encabezado];
+                        
+                        fila.appendChild(celdaEncabezado);
+                        fila.appendChild(celdaValor);
+                        resultTableBody.appendChild(fila);
+                    }
+                }
+            }
+            
+            resultContainer.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
