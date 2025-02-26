@@ -99,7 +99,7 @@
 <body>
     <h1>Lector de Etiquetas</h1>
     
-    <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta. El sistema buscará encabezados en color rosa (similares a "Referencia", "Número de puntos", etc.) y extraerá los valores correspondientes en color blanco.</p>
+    <p>Presiona el botón "Registrar" para abrir la cámara y capturar una etiqueta. El sistema buscará encabezados en color rosa y  extraerá los valores correspondientes en color blanco.</p>
     
     <button id="registerBtn">Registrar</button>
     
@@ -245,13 +245,11 @@
         function parseEtiqueta(text) {
             console.log('Texto reconocido:', text);
             
-            // Definir los posibles encabezados (los textos en rosa)
+            // Definir los encabezados específicos (los textos en rosa/rojo)
             const expectedHeaders = [
-                "Referencia",
-                "Número de puntos",
-                "Descripción",
-                "Código Stongal",
-                "Código"
+                "ID en PMC",
+                "Número de parte",
+                "Descripción"
             ];
             
             const results = {};
