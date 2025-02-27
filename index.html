@@ -3,43 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lector de Códigos QR Robusto</title>
-    <script src="https://unpkg.com/@zxing/library@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.5.5/opencv.js"></script>
+    <title>Lector de Códigos QR</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
-        /* Estilos anteriores... */
-        #processingCanvas {
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1, h2 {
+            color: #333;
+        }
+        
+        button {
+            background-color: #ff5b87;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        #videoContainer, #resultPanel {
+            position: relative;
+            width: 100%;
+            max-width: 100%;
+            margin: 20px 0;
             display: none;
         }
         
-        .controls {
+        #video {
+            width: 100%;
+            max-width: 100%;
+            border: 1px solid #ccc;
+        }
+        
+        #canvas {
+            display: none;
+        }
+        
+        #qrBox {
+            position: absolute;
+            border: 3px solid #ff5b87;
+            display: none;
+        }
+        
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .result-table th {
+            background-color: #ff5b87;
+            color: white;
+            padding: 10px;
+            text-align: left;
+        }
+        
+        .result-table td {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+        
+        .info-panel {
+            background-color: #e9f7fe;
+            border-left: 4px solid #3498db;
+            padding: 10px;
             margin: 15px 0;
         }
         
-        .control-group {
-            margin-bottom: 10px;
-        }
-        
-        label {
-            display: inline-block;
-            width: 120px;
-        }
-        
-        input[type="range"] {
-            width: 200px;
+        #status {
+            margin: 15px 0;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
-    <h1>Lector de Códigos QR Robusto</h1>
+    <h1>Lector de Códigos QR</h1>
     
     <div class="info-panel">
-        <p>Esta aplicación está optimizada para leer códigos QR en condiciones difíciles.</p>
-        <p><strong>Recomendaciones:</strong></p>
+        <p>Esta aplicación lee códigos QR que contienen identificadores de productos.</p>
+        <p><strong>Para mejores resultados:</strong></p>
         <ul>
-            <li>Ajusta el contraste y brillo si el código tiene reflejos</li>
-            <li>Evita movimientos bruscos al escanear</li>
-            <li>Intenta posicionar el código para minimizar reflejos</li>
+            <li>Asegúrate de que haya buena iluminación</li>
+            <li>Mantén el código QR centrado en la pantalla</li>
+            <li>Mantén la cámara estable</li>
         </ul>
     </div>
     
@@ -51,29 +105,26 @@
     <div id="videoContainer">
         <video id="video" playsinline autoplay></video>
         <canvas id="canvas"></canvas>
-        <canvas id="processingCanvas"></canvas>
         <div id="qrBox"></div>
-        
-        <div class="controls">
-            <div class="control-group">
-                <label for="contrastSlider">Contraste:</label>
-                <input type="range" id="contrastSlider" min="0.5" max="2.5" step="0.1" value="1.0">
-                <span id="contrastValue">1.0</span>
-            </div>
-            <div class="control-group">
-                <label for="brightnessSlider">Brillo:</label>
-                <input type="range" id="brightnessSlider" min="-50" max="50" step="1" value="0">
-                <span id="brightnessValue">0</span>
-            </div>
-            <div class="control-group">
-                <input type="checkbox" id="preprocessToggle" checked>
-                <label for="preprocessToggle">Preprocesamiento avanzado</label>
-            </div>
-        </div>
     </div>
     
     <div id="resultPanel">
-        <!-- Contenido de resultados... igual que antes -->
+        <h2>Datos extraídos:</h2>
+        <div id="resultContainer">
+            <table class="result-table">
+                <thead>
+                    <tr>
+                        <th>ID Escaneado</th>
+                        <th>Fecha/Hora</th>
+                    </tr>
+                </thead>
+                <tbody id="resultTableBody">
+                    <!-- Los resultados se agregarán aquí -->
+                </tbody>
+            </table>
+        </div>
+        
+        <button id="newScanButton">Nuevo Escaneo</button>
     </div>
     
     <script>
@@ -83,47 +134,15 @@
         const videoContainer = document.getElementById('videoContainer');
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const processingCanvas = document.getElementById('processingCanvas');
         const qrBox = document.getElementById('qrBox');
         const resultPanel = document.getElementById('resultPanel');
         const resultTableBody = document.getElementById('resultTableBody');
         const newScanButton = document.getElementById('newScanButton');
         const statusText = document.getElementById('status');
-        const contrastSlider = document.getElementById('contrastSlider');
-        const brightnessSlider = document.getElementById('brightnessSlider');
-        const contrastValue = document.getElementById('contrastValue');
-        const brightnessValue = document.getElementById('brightnessValue');
-        const preprocessToggle = document.getElementById('preprocessToggle');
         
         let stream = null;
         let scanning = false;
         let canvasContext = canvas.getContext('2d');
-        let processingContext = processingCanvas.getContext('2d');
-        let codeReader = null;
-        let opencvReady = false;
-        
-        // Verificar si OpenCV está listo
-        function onOpenCvReady() {
-            opencvReady = true;
-            statusText.textContent = "Herramientas de procesamiento avanzado listas";
-        }
-        
-        // Si OpenCV ya está cargado
-        if (typeof cv !== 'undefined') {
-            onOpenCvReady();
-        } else {
-            // Callback para cuando OpenCV termine de cargar
-            window.onOpenCvReady = onOpenCvReady;
-        }
-        
-        // Actualizar valores de los controles
-        contrastSlider.addEventListener('input', () => {
-            contrastValue.textContent = contrastSlider.value;
-        });
-        
-        brightnessSlider.addEventListener('input', () => {
-            brightnessValue.textContent = brightnessSlider.value;
-        });
         
         // Iniciar el escáner
         startButton.addEventListener('click', startScanner);
@@ -136,9 +155,6 @@
         // Función para iniciar el escáner
         async function startScanner() {
             try {
-                // Inicializar ZXing
-                codeReader = new ZXing.BrowserQRCodeReader();
-                
                 // Configurar la cámara
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment" }
@@ -156,8 +172,6 @@
                 // Ajustar el tamaño del canvas al video
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                processingCanvas.width = video.videoWidth;
-                processingCanvas.height = video.videoHeight;
                 
                 // Iniciar el proceso de escaneo
                 scanning = true;
@@ -184,155 +198,41 @@
             statusText.textContent = 'Escáner detenido';
         }
         
-        // Preprocesar la imagen para mejorar la detección de QR
-        function preprocessImage() {
-            if (!opencvReady) return null;
-            
-            try {
-                // Dibujar frame actual en processingCanvas
-                processingContext.drawImage(video, 0, 0, processingCanvas.width, processingCanvas.height);
-                const imageData = processingContext.getImageData(0, 0, processingCanvas.width, processingCanvas.height);
-                
-                // Convertir imageData a Mat de OpenCV
-                const src = cv.matFromImageData(imageData);
-                const dst = new cv.Mat();
-                
-                // Aplicar contraste y brillo
-                const contrast = parseFloat(contrastSlider.value);
-                const brightness = parseInt(brightnessSlider.value);
-                
-                // Aplicar contraste y brillo
-                src.convertTo(dst, -1, contrast, brightness);
-                
-                if (preprocessToggle.checked) {
-                    // Convertir a escala de grises
-                    const gray = new cv.Mat();
-                    cv.cvtColor(dst, gray, cv.COLOR_RGBA2GRAY);
-                    
-                    // Aplicar umbral adaptativo para mejorar la detección de bordes
-                    const binary = new cv.Mat();
-                    cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
-                    
-                    // Eliminar ruido
-                    const kernel = cv.Mat.ones(5, 5, cv.CV_8U);
-                    const processed = new cv.Mat();
-                    cv.morphologyEx(binary, processed, cv.MORPH_CLOSE, kernel);
-                    
-                    // Convertir de vuelta a RGBA para mostrar
-                    const result = new cv.Mat();
-                    cv.cvtColor(processed, result, cv.COLOR_GRAY2RGBA);
-                    
-                    // Mostrar la imagen procesada
-                    cv.imshow(processingCanvas, result);
-                    
-                    // Crear un nuevo ImageData para devolver
-                    const processedImageData = processingContext.getImageData(0, 0, processingCanvas.width, processingCanvas.height);
-                    
-                    // Liberar memoria
-                    src.delete();
-                    dst.delete();
-                    gray.delete();
-                    binary.delete();
-                    kernel.delete();
-                    processed.delete();
-                    result.delete();
-                    
-                    return processedImageData;
-                } else {
-                    // Mostrar imagen con solo ajuste de contraste/brillo
-                    cv.imshow(processingCanvas, dst);
-                    
-                    // Crear un nuevo ImageData para devolver
-                    const processedImageData = processingContext.getImageData(0, 0, processingCanvas.width, processingCanvas.height);
-                    
-                    // Liberar memoria
-                    src.delete();
-                    dst.delete();
-                    
-                    return processedImageData;
-                }
-            } catch (error) {
-                console.error('Error en preprocesamiento:', error);
-                return null;
-            }
-        }
-        
         // Función para escanear el código QR
-        async function scanQRCode() {
+        function scanQRCode() {
             if (!scanning) return;
             
-            try {
+            requestAnimationFrame(scanQRCode);
+            
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 // Dibujar el frame actual en el canvas
                 canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = canvasContext.getImageData(0, 0, canvas.width, canvas.height);
                 
-                // Preprocesar la imagen si OpenCV está disponible
-                const imageData = preprocessImage() || 
-                                  canvasContext.getImageData(0, 0, canvas.width, canvas.height);
+                // Analizar la imagen con jsQR
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
                 
-                // Crear un ImageBitmap para ZXing
-                const imageBitmap = await createImageBitmap(
-                    new ImageData(
-                        new Uint8ClampedArray(imageData.data), 
-                        imageData.width, 
-                        imageData.height
-                    )
-                );
-                
-                // Decodificar usando ZXing
-                const hints = new Map();
-                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-                hints.set(ZXing.DecodeHintType.PURE_BARCODE, false);
-                
-                try {
-                    const result = codeReader.decodeFromImageBitmap(imageBitmap, hints);
+                if (code) {
+                    // Se encontró un código QR
+                    console.log("QR Code detected:", code.data);
                     
-                    if (result) {
-                        // Se encontró un código QR
-                        console.log("QR Code detected:", result.getText());
-                        
-                        // Marcar posición del código QR en la interfaz
-                        const points = result.getResultPoints();
-                        if (points && points.length >= 3) {
-                            // Encontrar las coordenadas extremas
-                            let minX = canvas.width, minY = canvas.height;
-                            let maxX = 0, maxY = 0;
-                            
-                            for (const point of points) {
-                                minX = Math.min(minX, point.getX());
-                                minY = Math.min(minY, point.getY());
-                                maxX = Math.max(maxX, point.getX());
-                                maxY = Math.max(maxY, point.getY());
-                            }
-                            
-                            // Mostrar caja alrededor del QR
-                            qrBox.style.display = 'block';
-                            qrBox.style.left = `${minX}px`;
-                            qrBox.style.top = `${minY}px`;
-                            qrBox.style.width = `${maxX - minX}px`;
-                            qrBox.style.height = `${maxY - minY}px`;
-                            
-                            // Detener el escaneo
-                            scanning = false;
-                            
-                            // Mostrar el resultado
-                            displayResult(result.getText());
-                            return;
-                        }
-                    }
-                } catch (error) {
-                    // Error normal durante el escaneo, ignorar
+                    // Dibujar un recuadro alrededor del código QR
+                    qrBox.style.display = 'block';
+                    qrBox.style.left = `${code.location.topLeftCorner.x}px`;
+                    qrBox.style.top = `${code.location.topLeftCorner.y}px`;
+                    qrBox.style.width = `${code.location.bottomRightCorner.x - code.location.topLeftCorner.x}px`;
+                    qrBox.style.height = `${code.location.bottomRightCorner.y - code.location.topLeftCorner.y}px`;
+                    
+                    // Detener el escaneo
+                    scanning = false;
+                    
+                    // Mostrar el resultado
+                    displayResult(code.data);
+                } else {
+                    qrBox.style.display = 'none';
                 }
-                
-                // Limpiar caja si no se detectó código
-                qrBox.style.display = 'none';
-                
-                // Continuar escaneando
-                requestAnimationFrame(scanQRCode);
-                
-            } catch (error) {
-                console.error('Error en escaneo:', error);
-                statusText.textContent = 'Error en el escaneo: ' + error.message;
-                scanning = false;
             }
         }
         
