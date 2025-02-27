@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lector de Etiquetas</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
-    <script src="https://docs.opencv.org/4.5.5/opencv.js"></script>
+    <title>Lector de Códigos QR</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -29,12 +28,7 @@
             margin: 10px 0;
         }
         
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        
-        #videoContainer, #captureContainer, #processingContainer {
+        #videoContainer, #resultPanel {
             position: relative;
             width: 100%;
             max-width: 100%;
@@ -42,29 +36,20 @@
             display: none;
         }
         
-        #video, #capturedPhoto {
+        #video {
             width: 100%;
             max-width: 100%;
             border: 1px solid #ccc;
         }
         
-        #targetOverlay {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80%;
-            height: 60%;
-            border: 3px dashed #ff5b87;
-            box-sizing: border-box;
-            pointer-events: none;
+        #canvas {
+            display: none;
         }
         
-        .controls {
-            margin: 15px 0;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
+        #qrBox {
+            position: absolute;
+            border: 3px solid #ff5b87;
+            display: none;
         }
         
         .result-table {
@@ -86,56 +71,6 @@
             border: 1px solid #ddd;
         }
         
-        #loadingMessage {
-            display: none;
-            margin: 20px 0;
-            font-weight: bold;
-            color: #ff5b87;
-        }
-        
-        .hidden {
-            display: none;
-        }
-        
-        #debugText {
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 12px;
-            padding: 10px;
-            background-color: #f5f5f5;
-            border: 1px solid #ddd;
-            margin-top: 20px;
-            max-height: 200px;
-            overflow: auto;
-        }
-        
-        .etiqueta-ejemplo {
-            background-color: #f5f5f5;
-            border: 1px solid #ddd;
-            padding: 15px;
-            margin: 20px 0;
-            width: fit-content;
-        }
-        
-        .etiqueta-ejemplo .encabezado {
-            background-color: #ff5b87;
-            color: white;
-            padding: 5px 10px;
-            margin: 3px 0;
-            font-weight: bold;
-        }
-        
-        .etiqueta-ejemplo .valor {
-            background-color: white;
-            padding: 5px 10px;
-            margin: 3px 0;
-            border: 1px solid #ddd;
-        }
-        
-        .camera-quality {
-            margin: 15px 0;
-        }
-        
         .info-panel {
             background-color: #e9f7fe;
             border-left: 4px solid #3498db;
@@ -143,138 +78,44 @@
             margin: 15px 0;
         }
         
-        .progress {
-            height: 5px;
-            width: 100%;
-            background-color: #f0f0f0;
-            border-radius: 5px;
-            margin: 10px 0;
-            overflow: hidden;
-        }
-        
-        .progress-bar {
-            height: 100%;
-            width: 0;
-            background-color: #ff5b87;
-            transition: width 0.3s ease;
-        }
-        
-        #resultPanel {
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 15px;
-            margin-top: 20px;
-            background-color: #f9f9f9;
-        }
-        
-        canvas {
-            max-width: 100%;
-            margin-top: 10px;
-            border: 1px solid #ddd;
-        }
-        
-        .extracted-area {
-            margin-top: 15px;
-            padding: 10px;
-            background-color: #f0f0f0;
-            border: 1px solid #ddd;
-        }
-        
-        .extracted-area h3 {
-            margin-top: 0;
-            font-size: 16px;
-        }
-        
-        .extracted-area img {
-            max-width: 100%;
-            margin-bottom: 10px;
-        }
-        
-        .opencv-status {
-            margin: 10px 0;
-            font-style: italic;
-            color: #666;
+        #status {
+            margin: 15px 0;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
-    <h1>Lector de Etiquetas</h1>
+    <h1>Lector de Códigos QR</h1>
     
     <div class="info-panel">
-        <p>Esta aplicación detecta automáticamente los campos de texto en etiquetas como esta:</p>
-        <div class="etiqueta-ejemplo">
-            <div class="encabezado">ID en PMC</div>
-            <div class="valor">CB4-005</div>
-            <div class="encabezado">Número de parte</div>
-            <div class="valor">CB4-12</div>
-            <div class="encabezado">Descripción</div>
-            <div class="valor">Socket Head Cap Screws</div>
-        </div>
+        <p>Esta aplicación lee códigos QR que contienen identificadores de productos.</p>
         <p><strong>Para mejores resultados:</strong></p>
         <ul>
-            <li>Asegúrate de que haya buena iluminación uniforme</li>
-            <li>Evita sombras o reflejos sobre la etiqueta</li>
-            <li>Centra la etiqueta dentro del recuadro guía</li>
+            <li>Asegúrate de que haya buena iluminación</li>
+            <li>Mantén el código QR centrado en la pantalla</li>
+            <li>Mantén la cámara estable</li>
         </ul>
     </div>
     
-    <p class="opencv-status" id="opencvStatus">Cargando herramientas de procesamiento de imagen...</p>
+    <p id="status">Preparado para escanear</p>
     
-    <button id="registerBtn" disabled>Abrir Cámara</button>
+    <button id="startButton">Iniciar Escáner</button>
+    <button id="stopButton" style="display:none;">Detener Escáner</button>
     
     <div id="videoContainer">
-        <div class="camera-quality">
-            <label for="cameraResolution">Resolución de cámara:</label>
-            <select id="cameraResolution">
-                <option value="high">Alta (HD)</option>
-                <option value="medium" selected>Media</option>
-                <option value="low">Baja</option>
-            </select>
-        </div>
-        
-        <video id="video" autoplay playsinline></video>
-        <div id="targetOverlay"></div>
-        <div class="controls">
-            <button id="captureBtn">Tomar Foto</button>
-            <button id="cancelBtn">Cancelar</button>
-            <button id="switchCameraBtn">Cambiar Cámara</button>
-        </div>
+        <video id="video" playsinline autoplay></video>
+        <canvas id="canvas"></canvas>
+        <div id="qrBox"></div>
     </div>
     
-    <div id="captureContainer">
-        <img id="capturedPhoto">
-        <div class="controls">
-            <button id="confirmBtn">Procesar Imagen</button>
-            <button id="retakeBtn">Tomar otra</button>
-        </div>
-    </div>
-    
-    <div id="processingContainer">
-        <h3>Áreas detectadas:</h3>
-        <canvas id="canvasOutput"></canvas>
-        <h3>Áreas blancas extraídas:</h3>
-        <div id="extractedAreas"></div>
-        <div class="controls">
-            <button id="processOcrBtn">Reconocer Texto</button>
-            <button id="retakeProcessBtn">Tomar otra foto</button>
-        </div>
-    </div>
-    
-    <div id="loadingMessage">
-        Procesando imagen, por favor espere...
-        <div class="progress">
-            <div id="progressBar" class="progress-bar"></div>
-        </div>
-    </div>
-    
-    <div id="resultPanel" class="hidden">
+    <div id="resultPanel">
         <h2>Datos extraídos:</h2>
         <div id="resultContainer">
             <table class="result-table">
                 <thead>
                     <tr>
-                        <th>Campo</th>
-                        <th>Valor</th>
+                        <th>ID Escaneado</th>
+                        <th>Fecha/Hora</th>
                     </tr>
                 </thead>
                 <tbody id="resultTableBody">
@@ -283,564 +124,140 @@
             </table>
         </div>
         
-        <div class="controls">
-            <button id="newCaptureBtn">Nueva Captura</button>
-            <button id="toggleDebugBtn">Ver detalles técnicos</button>
-        </div>
-        <div id="debugText" class="hidden"></div>
+        <button id="newScanButton">Nuevo Escaneo</button>
     </div>
     
     <script>
         // Elementos del DOM
-        const registerBtn = document.getElementById('registerBtn');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
         const videoContainer = document.getElementById('videoContainer');
-        const captureContainer = document.getElementById('captureContainer');
-        const processingContainer = document.getElementById('processingContainer');
         const video = document.getElementById('video');
-        const capturedPhoto = document.getElementById('capturedPhoto');
-        const captureBtn = document.getElementById('captureBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const confirmBtn = document.getElementById('confirmBtn');
-        const retakeBtn = document.getElementById('retakeBtn');
-        const switchCameraBtn = document.getElementById('switchCameraBtn');
-        const loadingMessage = document.getElementById('loadingMessage');
+        const canvas = document.getElementById('canvas');
+        const qrBox = document.getElementById('qrBox');
         const resultPanel = document.getElementById('resultPanel');
         const resultTableBody = document.getElementById('resultTableBody');
-        const debugText = document.getElementById('debugText');
-        const progressBar = document.getElementById('progressBar');
-        const newCaptureBtn = document.getElementById('newCaptureBtn');
-        const cameraResolution = document.getElementById('cameraResolution');
-        const toggleDebugBtn = document.getElementById('toggleDebugBtn');
-        const opencvStatus = document.getElementById('opencvStatus');
-        const canvasOutput = document.getElementById('canvasOutput');
-        const extractedAreas = document.getElementById('extractedAreas');
-        const processOcrBtn = document.getElementById('processOcrBtn');
-        const retakeProcessBtn = document.getElementById('retakeProcessBtn');
+        const newScanButton = document.getElementById('newScanButton');
+        const statusText = document.getElementById('status');
         
         let stream = null;
-        let useFrontCamera = false;
-        let whiteRectangles = [];
-        let extractedTexts = [];
-        let debugLogs = [];
+        let scanning = false;
+        let canvasContext = canvas.getContext('2d');
         
-        // Función para agregar logs de depuración
-        function addDebugLog(message) {
-            const timestamp = new Date().toLocaleTimeString();
-            debugLogs.push(`[${timestamp}] ${message}`);
-            debugText.textContent = debugLogs.join('\n');
-        }
-        
-        // Verificar si OpenCV está listo
-        function onOpenCvReady() {
-            opencvStatus.textContent = "Herramientas de procesamiento de imagen listas";
-            opencvStatus.style.color = "#28a745";
-            registerBtn.disabled = false;
-            addDebugLog("OpenCV cargado correctamente");
-        }
-        
-        // Si OpenCV ya está cargado
-        if (typeof cv !== 'undefined') {
-            onOpenCvReady();
-        } else {
-            // Callback para cuando OpenCV termine de cargar
-            window.onOpenCvReady = onOpenCvReady;
-        }
-        
-        // Configuración de resoluciones para la cámara
-        const resolucionesCamera = {
-            high: { width: { ideal: 1920 }, height: { ideal: 1080 } },
-            medium: { width: { ideal: 1280 }, height: { ideal: 720 } },
-            low: { width: { ideal: 640 }, height: { ideal: 480 } }
-        };
-        
-        // Mostrar/ocultar detalles de depuración
-        toggleDebugBtn.addEventListener('click', function() {
-            if (debugText.classList.contains('hidden')) {
-                debugText.classList.remove('hidden');
-                toggleDebugBtn.textContent = 'Ocultar detalles técnicos';
-            } else {
-                debugText.classList.add('hidden');
-                toggleDebugBtn.textContent = 'Ver detalles técnicos';
-            }
+        // Iniciar el escáner
+        startButton.addEventListener('click', startScanner);
+        stopButton.addEventListener('click', stopScanner);
+        newScanButton.addEventListener('click', () => {
+            resultPanel.style.display = 'none';
+            startScanner();
         });
         
-        // Iniciar una nueva captura
-        newCaptureBtn.addEventListener('click', function() {
-            resultPanel.classList.add('hidden');
-            debugText.classList.add('hidden');
-            toggleDebugBtn.textContent = 'Ver detalles técnicos';
-            registerBtn.click();
-        });
-        
-        // Volver a tomar foto desde el procesamiento
-        retakeProcessBtn.addEventListener('click', function() {
-            processingContainer.style.display = 'none';
-            videoContainer.style.display = 'block';
-            
-            // Limpiar datos anteriores
-            extractedAreas.innerHTML = '';
-            whiteRectangles = [];
-            extractedTexts = [];
-        });
-        
-        // Cambio de resolución de cámara
-        cameraResolution.addEventListener('change', function() {
-            // Si la cámara está activa, reiniciarla con la nueva resolución
-            if (stream) {
-                const wasUsingFront = useFrontCamera;
-                stopCamera();
-                startCamera(wasUsingFront);
-            }
-        });
-        
-        // Función para iniciar la cámara
-        async function startCamera(useFront = false) {
-            // Detener cualquier stream previo
-            stopCamera();
-            
+        // Función para iniciar el escáner
+        async function startScanner() {
             try {
-                const resolucion = resolucionesCamera[cameraResolution.value];
+                // Configurar la cámara
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" }
+                });
                 
-                // Obtener restricciones de video según la cámara seleccionada
-                let videoConstraints = { ...resolucion };
+                videoContainer.style.display = 'block';
+                startButton.style.display = 'none';
+                stopButton.style.display = 'inline-block';
+                statusText.textContent = 'Escaneando... Apunta al código QR';
                 
-                if (useFront) {
-                    videoConstraints.facingMode = "user";
-                } else {
-                    videoConstraints.facingMode = { ideal: "environment" };
-                }
+                // Configurar el video
+                video.srcObject = stream;
+                await video.play();
                 
-                // Añadir configuraciones adicionales para mejor calidad
-                const constraints = {
-                    video: {
-                        ...videoConstraints,
-                        aspectRatio: { ideal: 4/3 },
-                        frameRate: { min: 15, ideal: 30 },
-                    },
-                    audio: false
-                };
+                // Ajustar el tamaño del canvas al video
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
                 
-                addDebugLog(`Intentando acceder a la cámara: ${useFront ? 'frontal' : 'trasera'}`);
+                // Iniciar el proceso de escaneo
+                scanning = true;
+                scanQRCode();
                 
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    useFrontCamera = useFront;
-                    
-                    video.srcObject = stream;
-                    await video.play();
-                    
-                    // Establecer la resolución del video
-                    const track = stream.getVideoTracks()[0];
-                    const settings = track.getSettings();
-                    addDebugLog(`Cámara iniciada: ${settings.width}x${settings.height}`);
-                    
-                    return true;
-                } catch (err) {
-                    addDebugLog(`Error con configuración específica: ${err.message}`);
-                    
-                    // Si falla, intentar con configuración genérica
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: useFront ? { facingMode: "user" } : { facingMode: { ideal: "environment" } },
-                        audio: false
-                    });
-                    
-                    useFrontCamera = useFront;
-                    video.srcObject = stream;
-                    await video.play();
-                    
-                    const track = stream.getVideoTracks()[0];
-                    const settings = track.getSettings();
-                    addDebugLog(`Cámara iniciada con config genérica: ${settings.width}x${settings.height}`);
-                    
-                    return true;
-                }
-            } catch (err) {
-                addDebugLog(`Error al acceder a la cámara: ${err.message}`);
-                alert("No se pudo acceder a la cámara. Asegúrate de dar permisos y que tu dispositivo tenga una cámara disponible.");
-                return false;
+            } catch (error) {
+                console.error('Error accediendo a la cámara:', error);
+                statusText.textContent = 'Error al acceder a la cámara';
             }
         }
         
-        // Detener la cámara
-        function stopCamera() {
+        // Función para detener el escáner
+        function stopScanner() {
+            scanning = false;
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
-                video.srcObject = null;
             }
-        }
-        
-        // Iniciar la cámara al hacer click en el botón registrar
-        registerBtn.addEventListener('click', async function() {
-            videoContainer.style.display = 'block';
-            registerBtn.style.display = 'none';
-            
-            const success = await startCamera(false); // Intentar con cámara trasera primero
-            
-            if (!success) {
-                videoContainer.style.display = 'none';
-                registerBtn.style.display = 'block';
-            }
-        });
-        
-        // Cambiar entre cámaras frontal y trasera
-        switchCameraBtn.addEventListener('click', async function() {
-            await startCamera(!useFrontCamera); // Alternar entre cámaras
-        });
-        
-        // Capturar foto con la mejor calidad posible
-        captureBtn.addEventListener('click', function() {
-            const canvas = document.createElement('canvas');
-            
-            // Usar las dimensiones reales del video para máxima calidad
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            
-            addDebugLog(`Capturando imagen: ${canvas.width}x${canvas.height}`);
-            
-            const ctx = canvas.getContext('2d');
-            
-            // Dibujar con la mejor calidad
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // Guardar la imagen con alta calidad
-            capturedPhoto.src = canvas.toDataURL('image/png', 1.0);
-            
+            video.srcObject = null;
             videoContainer.style.display = 'none';
-            captureContainer.style.display = 'block';
-        });
-        
-        // Cancelar captura
-        cancelBtn.addEventListener('click', function() {
-            stopCamera();
-            videoContainer.style.display = 'none';
-            registerBtn.style.display = 'block';
-        });
-        
-        // Retomar foto
-        retakeBtn.addEventListener('click', function() {
-            captureContainer.style.display = 'none';
-            videoContainer.style.display = 'block';
-        });
-        
-        // Confirmar foto y procesar con OpenCV
-        confirmBtn.addEventListener('click', function() {
-            if (typeof cv === 'undefined') {
-                alert("Las herramientas de procesamiento de imagen aún no están cargadas. Por favor, espere un momento.");
-                return;
-            }
-            
-            captureContainer.style.display = 'none';
-            processingContainer.style.display = 'block';
-            extractedAreas.innerHTML = '';
-            whiteRectangles = [];
-            extractedTexts = [];
-            
-            try {
-                // Cargar la imagen en OpenCV
-                const img = new Image();
-                img.onload = function() {
-                    processImageWithOpenCV(img);
-                };
-                img.src = capturedPhoto.src;
-            } catch (err) {
-                addDebugLog(`Error preparando imagen: ${err.message}`);
-                alert("Hubo un error al procesar la imagen. Inténtelo de nuevo.");
-                captureContainer.style.display = 'block';
-                processingContainer.style.display = 'none';
-            }
-        });
-        
-        // Procesar la imagen con OpenCV para detectar rectángulos blancos
-        function processImageWithOpenCV(imgElement) {
-            try {
-                addDebugLog("Iniciando procesamiento con OpenCV");
-                
-                const width = imgElement.width;
-                const height = imgElement.height;
-                
-                // Crear canvas y convertir imagen
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(imgElement, 0, 0, width, height);
-                
-                // Obtener datos de la imagen
-                const imageData = ctx.getImageData(0, 0, width, height);
-                
-                // Convertir a formato de OpenCV
-                const srcMat = cv.matFromImageData(imageData);
-                const dstMat = new cv.Mat();
-                
-                // Convertir a escala de grises
-                const grayMat = new cv.Mat();
-                cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
-                
-                // Aplicar umbral para detectar áreas blancas
-                const thresholdMat = new cv.Mat();
-                cv.threshold(grayMat, thresholdMat, 200, 255, cv.THRESH_BINARY);
-                
-                // Realizar operaciones morfológicas para mejorar la detección
-                const kernel = cv.Mat.ones(5, 5, cv.CV_8U);
-                const morphMat = new cv.Mat();
-                cv.morphologyEx(thresholdMat, morphMat, cv.MORPH_CLOSE, kernel);
-                
-                // Encontrar contornos
-                const contours = new cv.MatVector();
-                const hierarchy = new cv.Mat();
-                cv.findContours(morphMat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
-                // Dibujar imagen original
-                cv.cvtColor(srcMat, dstMat, cv.COLOR_RGBA2RGB);
-                
-                // Área mínima para considerar un rectángulo (ajustar según necesidad)
-                const minArea = (width * height) * 0.01; // 1% del área total
-                const maxArea = (width * height) * 0.2; // 20% del área total
-                
-                addDebugLog(`Analizando ${contours.size()} contornos`);
-                
-                // Encontrar posibles rectángulos blancos
-                for (let i = 0; i < contours.size(); ++i) {
-                    const contour = contours.get(i);
-                    const area = cv.contourArea(contour);
-                    
-                    if (area > minArea && area < maxArea) {
-                        // Obtener el rectángulo mínimo que contiene el contorno
-                        const rect = cv.boundingRect(contour);
-                        
-                        // Extraer el área para verificar si es predominantemente blanca
-                        const roi = grayMat.roi(rect);
-                        const meanVal = cv.mean(roi);
-                        
-                        // Si el valor promedio es alto (cercano a blanco)
-                        if (meanVal[0] > 180) {
-                            // Dibujar rectángulo en la visualización
-                            const color = new cv.Scalar(0, 255, 0);  // Verde
-                            cv.rectangle(dstMat, 
-                                new cv.Point(rect.x, rect.y), 
-                                new cv.Point(rect.x + rect.width, rect.y + rect.height), 
-                                color, 2);
-                            
-                            // Guardar información del rectángulo
-                            whiteRectangles.push({
-                                x: rect.x,
-                                y: rect.y,
-                                width: rect.width,
-                                height: rect.height,
-                                area: area
-                            });
-                        }
-                        
-                        roi.delete();
-                    }
-                }
-                
-                // Ordenar rectángulos por posición Y (de arriba a abajo)
-                whiteRectangles.sort((a, b) => a.y - b.y);
-                
-                // Mostrar la imagen con los rectángulos detectados
-                cv.imshow(canvasOutput, dstMat);
-                
-                // Extraer las áreas blancas para el OCR
-                extractWhiteAreas(srcMat);
-                
-                // Limpiar memoria
-                srcMat.delete();
-                dstMat.delete();
-                grayMat.delete();
-                thresholdMat.delete();
-                morphMat.delete();
-                kernel.delete();
-                contours.delete();
-                hierarchy.delete();
-                
-                addDebugLog(`Detectados ${whiteRectangles.length} rectángulos blancos`);
-                
-            } catch (err) {
-                addDebugLog(`Error en procesamiento: ${err.message}`);
-                alert('Error al procesar la imagen. Inténtelo de nuevo.');
-            }
+            startButton.style.display = 'inline-block';
+            stopButton.style.display = 'none';
+            qrBox.style.display = 'none';
+            statusText.textContent = 'Escáner detenido';
         }
         
-        // Extraer las áreas blancas para OCR
-        function extractWhiteAreas(srcMat) {
-            try {
-                // Si no hay suficientes rectángulos, mostrar mensaje
-                if (whiteRectangles.length < 3) {
-                    extractedAreas.innerHTML = '<p>No se detectaron suficientes áreas blancas. Por favor, tome otra foto con mejor iluminación.</p>';
-                    addDebugLog("No se detectaron suficientes áreas blancas");
-                    return;
-                }
+        // Función para escanear el código QR
+        function scanQRCode() {
+            if (!scanning) return;
+            
+            requestAnimationFrame(scanQRCode);
+            
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // Dibujar el frame actual en el canvas
+                canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = canvasContext.getImageData(0, 0, canvas.width, canvas.height);
                 
-                // Tomar los tres primeros rectángulos (ordenados de arriba a abajo)
-                // Se asume que son ID en PMC, Número de parte, y Descripción en ese orden
-                const topRectangles = whiteRectangles.slice(0, 3);
-                
-                // Extraer cada área para procesamiento OCR
-                extractedAreas.innerHTML = '';
-                for (let i = 0; i < topRectangles.length; i++) {
-                    const rect = topRectangles[i];
-                    
-                    // Determinar el nombre del campo según su posición
-                    const nombreCampo = i === 0 ? "ID en PMC" : 
-                                       i === 1 ? "Número de parte" : 
-                                       "Descripción";
-                    
-                    // Extraer el área rectangular
-                    const roi = srcMat.roi(new cv.Rect(rect.x, rect.y, rect.width, rect.height));
-                    
-                    // Crear un canvas para esta área específica
-                    const rectCanvas = document.createElement('canvas');
-                    rectCanvas.width = rect.width;
-                    rectCanvas.height = rect.height;
-                    
-                    // Mejorar el contraste para mejor reconocimiento OCR
-                    const enhancedRoi = new cv.Mat();
-                    cv.cvtColor(roi, enhancedRoi, cv.COLOR_RGBA2GRAY);
-                    
-                    // Aplicar umbral adaptativo para mejorar el contraste
-                    const binaryRoi = new cv.Mat();
-                    cv.adaptiveThreshold(enhancedRoi, binaryRoi, 255, 
-                                       cv.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                       cv.THRESH_BINARY_INV, 11, 2);
-                    
-                    // Convertir a BGR para visualización
-                    const displayRoi = new cv.Mat();
-                    cv.cvtColor(binaryRoi, displayRoi, cv.COLOR_GRAY2RGBA);
-                    
-                    // Mostrar el área en el canvas
-                    cv.imshow(rectCanvas, displayRoi);
-                    
-                    // Crear elemento para mostrar el área extraída
-                    const extractedArea = document.createElement('div');
-                    extractedArea.className = 'extracted-area';
-                    
-                    extractedArea.innerHTML = `
-                        <h3>${nombreCampo}</h3>
-                        <img src="${rectCanvas.toDataURL()}" alt="Área extraída ${i+1}">
-                    `;
-                    
-                    extractedAreas.appendChild(extractedArea);
-                    
-                    // Guardar canvas para OCR posterior
-                    extractedTexts.push({
-                        campo: nombreCampo,
-                        canvas: rectCanvas,
-                        rect: rect
-                    });
-                    
-                    // Liberar memoria
-                    roi.delete();
-                    enhancedRoi.delete();
-                    binaryRoi.delete();
-                    displayRoi.delete();
-                }
-                
-                addDebugLog("Áreas blancas extraídas correctamente");
-                
-            } catch (err) {
-                addDebugLog(`Error extrayendo áreas: ${err.message}`);
-                alert('Error al extraer áreas de texto: ' + err.message);
-            }
-        }
-        
-        // Botón para reconocer texto
-        processOcrBtn.addEventListener('click', function() {
-            processingContainer.style.display = 'none';
-            loadingMessage.style.display = 'block';
-            progressBar.style.width = '0%';
-            
-            if (extractedTexts.length === 0) {
-                alert('No se detectaron áreas de texto. Por favor, intente capturar la imagen nuevamente.');
-                processingContainer.style.display = 'block';
-                loadingMessage.style.display = 'none';
-                return;
-            }
-            
-            // Procesar cada área extraída secuencialmente con OCR
-            procesarOCRSecuencial(0, {});
-        });
-        
-        // Procesar OCR en secuencia para cada área extraída
-        function procesarOCRSecuencial(indice, resultados) {
-            if (indice >= extractedTexts.length) {
-                // Completado el procesamiento de todas las áreas
-                mostrarResultadosFinales(resultados);
-                return;
-            }
-            
-            const areaActual = extractedTexts[indice];
-            const progresoBase = (indice / extractedTexts.length) * 100;
-            const progresoIncremento = (1 / extractedTexts.length) * 100;
-            
-            addDebugLog(`Procesando OCR para campo: ${areaActual.campo}`);
-            
-            // Configuración optimizada para reconocimiento de texto en cada área específica
-            const config = {
-                lang: 'eng+spa', // Usar español e inglés para mayor precisión
-                logger: info => {
-                    if (info.status === 'recognizing text') {
-                        progressBar.style.width = `${progresoBase + (progresoIncremento * info.progress)}%`;
-                    }
-                },
-
-                // Configuración optimizada para reconocimiento de texto en cada área específica
-                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-/ ',
-                tessedit_ocr_engine_mode: '2',
-                tessjs_create_pdf: '0',
-                tessjs_create_hocr: '0'
-            };
-
-            // Procesar la imagen con Tesseract
-            Tesseract.recognize(areaActual.canvas.toDataURL(), config)
-                .then(result => {
-                    // Obtener texto reconocido y limpiarlo
-                    let texto = result.data.text.trim();
-                    addDebugLog(`Texto reconocido para ${areaActual.campo}: "${texto}"`);
-                    
-                    // Guardar resultado
-                    resultados[areaActual.campo] = texto;
-                    
-                    // Continuar con la siguiente área
-                    procesarOCRSecuencial(indice + 1, resultados);
-                })
-                .catch(err => {
-                    addDebugLog(`Error en OCR para ${areaActual.campo}: ${err.message}`);
-                    // En caso de error, continuar con la siguiente área
-                    procesarOCRSecuencial(indice + 1, resultados);
+                // Analizar la imagen con jsQR
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
                 });
+                
+                if (code) {
+                    // Se encontró un código QR
+                    console.log("QR Code detected:", code.data);
+                    
+                    // Dibujar un recuadro alrededor del código QR
+                    qrBox.style.display = 'block';
+                    qrBox.style.left = `${code.location.topLeftCorner.x}px`;
+                    qrBox.style.top = `${code.location.topLeftCorner.y}px`;
+                    qrBox.style.width = `${code.location.bottomRightCorner.x - code.location.topLeftCorner.x}px`;
+                    qrBox.style.height = `${code.location.bottomRightCorner.y - code.location.topLeftCorner.y}px`;
+                    
+                    // Detener el escaneo
+                    scanning = false;
+                    
+                    // Mostrar el resultado
+                    displayResult(code.data);
+                } else {
+                    qrBox.style.display = 'none';
+                }
+            }
         }
-
-// Mostrar los resultados finales en la tabla
-        function mostrarResultadosFinales(resultados) {
-            loadingMessage.style.display = 'none';
-            resultPanel.classList.remove('hidden');
+        
+        // Mostrar el resultado
+        function displayResult(qrData) {
+            // Detener el escáner
+            stopScanner();
+            
+            // Mostrar el resultado
+            resultPanel.style.display = 'block';
             resultTableBody.innerHTML = '';
             
-            addDebugLog("Mostrando resultados finales");
+            const row = document.createElement('tr');
             
-            // Campos a mostrar en este orden específico
-            const campos = ["ID en PMC", "Número de parte", "Descripción"];
+            const idCell = document.createElement('td');
+            idCell.textContent = qrData;
             
-            // Crear fila para cada campo
-            for (const campo of campos) {
-                const fila = document.createElement('tr');
-                
-                const celdaCampo = document.createElement('td');
-                celdaCampo.textContent = campo;
-                
-                const celdaValor = document.createElement('td');
-                celdaValor.textContent = resultados[campo] || 'No detectado';
-                
-                fila.appendChild(celdaCampo);
-                fila.appendChild(celdaValor);
-                resultTableBody.appendChild(fila);
-            }
+            const timeCell = document.createElement('td');
+            timeCell.textContent = new Date().toLocaleString();
             
-            // Detener cámara si está activa
-            stopCamera();
+            row.appendChild(idCell);
+            row.appendChild(timeCell);
+            resultTableBody.appendChild(row);
+            
+            statusText.textContent = `ID escaneado: ${qrData}`;
         }
     </script>
 </body>
